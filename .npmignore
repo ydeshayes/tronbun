@@ -1,0 +1,8 @@
+tsconfig.json
+examples
+.cursor
+.vscode
+vendors
+webview/*.c
+webview/Makefile
+.gitmodules

@@ -1,0 +1,34 @@
+{
+  "name": "tronbun",
+  "version": "0.0.4",
+  "description": "A webview library for Bun",
+  "main": "src/index.ts",
+  "lib": "src/index.ts",
+  "bin": {
+    "tronbun": "./cli/index.ts"
+  },
+  "scripts": {
+    "build": "bun run build:webview",
+    "build:webview": "cd webview && make all",
+    "cli": "bun run cli/index.ts"
+  },
+  "keywords": [
+    "desktop",
+    "webview",
+    "tronbun",
+    "tronbun-webview",
+    "electron",
+    "native"
+  ],
+  "author": "Yann Deshayes",
+  "license": "GPLv3",
+  "dependencies": {
+    "bun": "^1.2.19"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
