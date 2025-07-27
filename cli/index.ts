@@ -50,6 +50,9 @@ async function main() {
       case "clean":
         await cli.clean();
         break;
+      case "generate-types":
+        await cli.generateTypes();
+        break;
       default:
         console.error("Unknown command:", command);
         console.log("Run 'tronbun --help' for usage information.");
