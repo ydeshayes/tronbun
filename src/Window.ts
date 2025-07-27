@@ -103,4 +103,8 @@ export class Window {
             this.hotReloadCleanup = null;
         }
     }
+
+    protected init(jsScript: string): void {
+        this.webview.init(jsScript);
+    }
 }

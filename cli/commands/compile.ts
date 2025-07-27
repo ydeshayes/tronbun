@@ -99,6 +99,8 @@ export class CompileCommand {
     <string>${outputName}</string>
     <key>CFBundleIdentifier</key>
     <string>com.tronbun.${outputName}</string>
+    <key>CFBundleIconFile</key>
+    <string>icon.icns</string>
     <key>CFBundleName</key>
     <string>${config.name}</string>
     <key>CFBundleDisplayName</key>

@@ -67,6 +67,7 @@ export class InitCommand {
         "build": "tronbun build",
         "dev": "tronbun dev",
         "start": "tronbun run",
+        "generate-types": "tronbun generate-types",
         "compile": "tronbun compile"
       },
       dependencies: {
@@ -81,35 +82,49 @@ export class InitCommand {
     writeFileSync(join(projectDir, "package.json"), JSON.stringify(packageJson, null, 2));
     
     // Create main backend file
-    const mainTs = `import { Window, findWebAssetPath } from "tronbun";
+    const mainTs = `import { Window, findWebAssetPath, mainHandler, windowName } from "tronbun";
 
-async function main() {
-  const window = new Window({
-    title: "${name}",
-    width: 800,
-    height: 600
-  });
-
-  // Set up IPC handlers
-  window.registerIPCHandler('greet', (name: string) => {
-    return \`Hello, \${name} from Bun!\`;
-  });
-
-  // Find web assets using the helper function
-  const webAssetsPath = findWebAssetPath("index.html", __dirname);
+  @windowName('${name.replace(/ /g, '').replace(/-/g, '').replace(/_/g, '')}')
+  export class MainWindow extends Window {
+    constructor() {
+      super({
+        title: "Hello world",
+        width: 800,
+        height: 600
+      });
+    }
   
-  if (!webAssetsPath) {
-    throw new Error("Could not find web assets. Make sure the dist/web/index.html file exists.");
+    @mainHandler('greet')
+    async handleGreet(name: string): Promise<string> {
+      console.log(\`Hello \${name}\`);
+      return \`Hello, \${name} from the decorated window!\`;
+    }
+  
+    @mainHandler('calculate')
+    async handleCalculate(data: { a: number; b: number; operation: string }): Promise<number> {
+      const { a, b, operation } = data;
+      switch (operation) {
+        case 'add':
+          return a + b;
+        case 'subtract':
+          return a - b;
+        case 'multiply':
+          return a * b;
+        case 'divide':
+          return b !== 0 ? a / b : 0;
+        default:
+          throw new Error(\`Unknown operation: \${operation}\`);
+      }
+    }
+  
+    @mainHandler('getSystemInfo')
+    async handleGetSystemInfo(): Promise<{ platform: string; version: string }> {
+      return {
+        platform: process.platform,
+        version: process.version
+      };
+    }
   }
-
-  // Load the web interface from file
-  console.log("Loading web assets from:", webAssetsPath);
-  await window.navigate(\`file://\${webAssetsPath}\`);
-
-  console.log("Application started!");
-}
-
-main().catch(console.error);
 `;
     
     writeFileSync(join(projectDir, "src/main.ts"), mainTs);
@@ -117,25 +132,11 @@ main().catch(console.error);
     // Create web frontend file
     const webTs = `// Web frontend code that runs in the webview
 
-declare global {
-  interface Window {
-    tronbun: {
-      invoke: (channel: string, data?: any) => Promise<any>;
-    };
-  }
-}
-
-async function greetUser() {
-  try {
-    const result = await window.tronbun.invoke('greet', 'World');
-    document.getElementById('result')!.innerHTML = \`<p><strong>\${result}</strong></p>\`;
-  } catch (error) {
-    console.error('IPC call failed:', error);
-  }
-}
-
-// Make function globally available
-(window as any).greetUser = greetUser;
+    async function greetUser() {
+      const result = await window.MainWindow.greet('World');
+      document.getElementById('result')!.textContent = result;
+    }
+    greetUser();
 
 console.log('Web frontend loaded!');
 `;
@@ -211,6 +212,17 @@ console.log('Web frontend loaded!');
     
     writeFileSync(join(projectDir, "README.md"), readmeLines.join("\n"));
     
+    // Create .gitignore
+    const gitignore = `node_modules
+dist
+.env
+.DS_Store
+.idea
+src/types
+`;
+
+    writeFileSync(join(projectDir, ".gitignore"), gitignore);
+
     console.log("✅ Project '" + name + "' created successfully!");
     console.log("\nNext steps:");
     console.log("  cd " + name);

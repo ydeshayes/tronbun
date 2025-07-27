@@ -9,6 +9,7 @@ export interface WebViewOptions {
     title?: string;
     html?: string;
     url?: string;
+    initScript?: string;
 }  
 export interface WebViewResponse {
     type: 'response' | 'bind_callback' | 'ipc:call';
@@ -57,6 +58,7 @@ export class Webview {
         if (options.title) this.setTitle(options.title);
         if (options.width && options.height) this.setSize(options.width, options.height);
         if (options.html) this.setHtml(options.html);
+        if (options.initScript) this.init(options.initScript);
         else if (options.url) this.navigate(options.url);
     }
 
@@ -251,5 +253,10 @@ export class Webview {
   async getVersion(): Promise<any> {
     const result = await this.sendCommand('get_version');
     return typeof result === 'string' ? JSON.parse(result) : result;
+  }
+
+  async isready(): Promise<boolean> {
+    const result = await this.sendCommand('isready');
+    return result;
   }
 }

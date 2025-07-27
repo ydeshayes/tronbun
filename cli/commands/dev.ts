@@ -1,10 +1,10 @@
 import type { TronbunConfig } from "../types.js";
 import { BuildCommand } from "./build.js";
-import { RunCommand } from "./run.js";
 import { resolve, dirname } from "path";
 import { watch } from "fs";
 import { spawn } from "bun";
 import { existsSync, writeFileSync } from "fs";
+import { GenerateTypesCommand } from "./generate-types.js";
 
 export class DevCommand {
   private static appProcess: any = null;
@@ -139,7 +139,8 @@ export class DevCommand {
     try {
       console.log("🔄 Rebuilding backend...");
       const buildSuccess = await BuildCommand.buildBackend(config, projectRoot, { dev: true });
-      
+      await GenerateTypesCommand.generateTypes(config, projectRoot);
+
       if (buildSuccess) {
         console.log("🔄 Restarting application...");
         await this.startApp(config, projectRoot);
@@ -153,6 +154,7 @@ export class DevCommand {
 
   private static async reloadWeb(config: TronbunConfig, projectRoot: string): Promise<void> {
     console.log("🔄 Rebuilding web assets...");
+
     const buildSuccess = await BuildCommand.buildWeb(config, projectRoot, { dev: true });
     
     if (buildSuccess) {

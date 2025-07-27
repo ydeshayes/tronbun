@@ -6,6 +6,7 @@ import { RunCommand } from "./commands/run.js";
 import { InitCommand } from "./commands/init.js";
 import { CleanCommand } from "./commands/clean.js";
 import { CompileCommand } from "./commands/compile.js";
+import { GenerateTypesCommand } from "./commands/generate-types.js";
 
 export class TronbunCLI {
   private config: TronbunConfig;
@@ -38,5 +39,9 @@ export class TronbunCLI {
 
   async compile(options: CompileOptions = {}): Promise<boolean> {
     return CompileCommand.compile(this.config, this.projectRoot, options);
+  }
+
+  async generateTypes(): Promise<void> {
+    return GenerateTypesCommand.generateTypes(this.config, this.projectRoot);
   }
 } 
