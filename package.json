@@ -1,9 +1,8 @@
 {
   "name": "tronbun",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "A webview library for Bun",
   "main": "src/index.ts",
-  "lib": "src/index.ts",
   "bin": {
     "tronbun": "./cli/index.ts"
   },
@@ -30,5 +29,13 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "homepage": "https://github.com/ydeshayes/tronbun",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ydeshayes/tronbun"
+  },
+  "bugs": {
+    "url": "https://github.com/ydeshayes/tronbun/issues"
   }
 }
