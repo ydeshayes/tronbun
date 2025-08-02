@@ -68,6 +68,9 @@ export class BuildCommand {
 
     Utils.ensureDir(outDir);
 
+    // Empty the outDir
+    await $`rm -rf ${outDir}`;
+
     try {
       const buildOptions = [
         "build",

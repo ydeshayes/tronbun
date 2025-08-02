@@ -45,7 +45,7 @@ export class DevCommand {
   }
 
   private static createReloadSignal(config: TronbunConfig, projectRoot: string): void {
-    const signalFile = resolve(projectRoot, config.web.outDir, '.dev-reload');
+    const signalFile = resolve(projectRoot, '.dev-reload');
     writeFileSync(signalFile, Date.now().toString());
   }
 

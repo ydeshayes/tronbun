@@ -90,6 +90,17 @@ export class CompileCommand {
         console.warn("    The compiled app may not work correctly");
       }
 
+      // Copy app icon to Resources
+      const iconPath = resolve(projectRoot, "assets", "icon.icns");
+      if (existsSync(iconPath)) {
+        console.log("🎨 Copying app icon...");
+        await $`cp ${iconPath} ${resourcesDir}/icon.icns`;
+        console.log("✅ App icon copied");
+      } else {
+        console.warn("⚠️  App icon not found at:", iconPath);
+        console.warn("    The app bundle may not have an icon");
+      }
+
       // Create Info.plist for the app bundle
       const infoPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

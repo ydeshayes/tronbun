@@ -1,5 +1,6 @@
 import { resolve, join } from "path";
-import { writeFileSync } from "fs";
+import { writeFileSync, existsSync } from "fs";
+import { $ } from "bun";
 import type { TronbunConfig } from "../types.js";
 import { Utils } from "../utils.js";
 
@@ -33,6 +34,17 @@ export class InitCommand {
 `;
 
     writeFileSync(join(projectDir, "public/index.html"), defaultHtml);
+
+    // Copy app icon from tronbun assets
+    const tronbunRoot = resolve(__dirname, "..", "..");
+    const assetsDir = resolve(tronbunRoot, "assets");
+    const iconPath = resolve(assetsDir, "icon.icns");
+    
+    if (existsSync(iconPath)) {
+      Utils.ensureDir(join(projectDir, "assets"));
+      console.log("🎨 Copying app icon...");
+      await $`cp ${iconPath} ${join(projectDir, "assets")}/`;
+    }
 
     // Create tronbun config
     const config: TronbunConfig = {

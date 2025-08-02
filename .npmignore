@@ -6,3 +6,4 @@ vendors
 webview/*.c
 webview/Makefile
 .gitmodules
+.dev-reload

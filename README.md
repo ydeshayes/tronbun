@@ -1,5 +1,9 @@
 # Tronbun (ALPHA, macOS only build for now)
 
+<div align="center">
+  <img src="assets/logo.webp" alt="Tronbun Application Example" width="300">
+</div>
+
 A powerful desktop application framework that combines Bun's performance with native webviews. Build desktop apps using TypeScript for both backend (Bun) and frontend (webview) with seamless IPC communication.
 
 ## Features
