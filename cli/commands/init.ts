@@ -4,6 +4,24 @@ import { $ } from "bun";
 import type { TronbunConfig } from "../types.js";
 import { Utils } from "../utils.js";
 
+function sanitizeVariableName(name: string) {
+  // Remove invalid characters and replace with _
+  let clean = name.replace(/[^a-zA-Z0-9_$]/g, '_');
+
+  // If it starts with a digit, prefix with an underscore
+  if (/^[0-9]/.test(clean)) {
+    clean = '_' + clean;
+  }
+
+  // Optionally, ensure it’s not a reserved word (optional check below)
+  const reservedWords = new Set(['class', 'return', 'function', 'const', 'var', 'let', 'if', 'else']); // extend as needed
+  if (reservedWords.has(clean)) {
+    clean = '_' + clean;
+  }
+
+  return clean;
+}
+
 export class InitCommand {
   static async init(projectName?: string): Promise<void> {
     const name = projectName || "my-tronbun-app";
@@ -93,10 +111,12 @@ export class InitCommand {
     
     writeFileSync(join(projectDir, "package.json"), JSON.stringify(packageJson, null, 2));
     
+    const windowName = sanitizeVariableName(name);
+
     // Create main backend file
     const mainTs = `import { WindowIPC, findWebAssetPath, mainHandler, windowName } from "tronbun";
 
-  @windowName('${name.replace(/ /g, '').replace(/-/g, '').replace(/_/g, '')}')
+  @windowName('${windowName}')
   export class MainWindow extends WindowIPC {
     constructor() {
       super({
@@ -157,7 +177,7 @@ export class InitCommand {
     const webTs = `// Web frontend code that runs in the webview
 
     async function greetUser() {
-      const result = await window.${name.replace(/ /g, '').replace(/-/g, '').replace(/_/g, '')}.greet('World');
+      const result = await window.${windowName}.greet('World');
       document.getElementById('result')!.textContent = result;
     }
 
