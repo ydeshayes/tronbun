@@ -3,6 +3,7 @@ import { existsSync } from "fs";
 import { $ } from "bun";
 import type { TronbunConfig, BuildOptions } from "../types.js";
 import { Utils } from "../utils.js";
+import { GenerateTypesCommand } from "./generate-types.js";
 
 export class BuildCommand {
   static async buildBackend(
@@ -127,6 +128,7 @@ export class BuildCommand {
     console.log("🚀 Building Tronbun application...");
     
     const backendSuccess = await this.buildBackend(config, projectRoot, options);
+    await GenerateTypesCommand.generateTypes(config, projectRoot);
     const webSuccess = await this.buildWeb(config, projectRoot, options);
     
     if (backendSuccess && webSuccess) {
