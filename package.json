@@ -1,6 +1,6 @@
 {
   "name": "tronbun",
-  "version": "0.0.5",
+  "version": "0.0.7",
   "description": "A webview library for Bun",
   "main": "src/index.ts",
   "bin": {
