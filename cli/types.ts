@@ -23,6 +23,10 @@ export interface BuildOptions {
   dev?: boolean;
 }
 
+export interface BuildBackendOptions extends BuildOptions {
+  bytecode?: boolean;
+}
+
 export interface CompileOptions {
   output?: string;
   platform?: 'windows' | 'macos' | 'auto';

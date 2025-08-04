@@ -1,14 +1,14 @@
 import { resolve } from "path";
 import { existsSync } from "fs";
 import { $ } from "bun";
-import type { TronbunConfig, BuildOptions } from "../types.js";
+import type { TronbunConfig, BuildOptions, BuildBackendOptions } from "../types.js";
 import { Utils } from "../utils.js";
 
 export class BuildCommand {
   static async buildBackend(
     config: TronbunConfig,
     projectRoot: string,
-    options: BuildOptions = {}
+    options: BuildBackendOptions = {}
   ): Promise<boolean> {
     console.log("🔧 Building backend...");
     
@@ -40,6 +40,10 @@ export class BuildCommand {
 
       if (options.watch) {
         buildOptions.push("--watch");
+      }
+
+      if(options.bytecode) {
+        buildOptions.push("--bytecode");
       }
 
       await $`bun ${buildOptions}`;
