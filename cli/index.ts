@@ -13,6 +13,7 @@ async function main() {
       watch: { type: "boolean", short: "w" },
       dev: { type: "boolean", short: "d" },
       output: { type: "string", short: "o" },
+      platform: { type: "string" },
     },
     allowPositionals: true,
   });
@@ -45,7 +46,10 @@ async function main() {
         await cli.run();
         break;
       case "compile":
-        await cli.compile({ output: args.output });
+        await cli.compile({ 
+          output: args.output,
+          platform: args.platform as 'windows' | 'macos' | 'auto' | undefined
+        });
         break;
       case "clean":
         await cli.clean();

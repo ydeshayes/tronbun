@@ -99,10 +99,30 @@ export class BuildCommand {
         const publicDir = resolve(projectRoot, config.web.publicDir);
         if (existsSync(publicDir)) {
           try {
+            // Use Bun's built-in file operations for cross-platform compatibility
+            const { readdir, copyFile, mkdir } = await import("fs/promises");
+            const { join } = await import("path");
+            
+            const copyRecursive = async (src: string, dest: string) => {
+              const entries = await readdir(src, { withFileTypes: true });
+              
+              for (const entry of entries) {
+                const srcPath = join(src, entry.name);
+                const destPath = join(dest, entry.name);
+                
+                if (entry.isDirectory()) {
+                  await mkdir(destPath, { recursive: true });
+                  await copyRecursive(srcPath, destPath);
+                } else {
+                  await copyFile(srcPath, destPath);
+                }
+              }
+            };
+            
             // Check if there are files to copy first
-            const files = await $`ls -A ${publicDir}`.text();
-            if (files.trim()) {
-              await $`cp -r ${publicDir}/* ${outDir}/`;
+            const entries = await readdir(publicDir, { withFileTypes: true });
+            if (entries.length > 0) {
+              await copyRecursive(publicDir, outDir);
             }
           } catch (error) {
             // Ignore errors if no files to copy

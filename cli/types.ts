@@ -25,6 +25,7 @@ export interface BuildOptions {
 
 export interface CompileOptions {
   output?: string;
+  platform?: 'windows' | 'macos' | 'auto';
 }
 
 export interface CLIArgs {
@@ -33,4 +34,5 @@ export interface CLIArgs {
   watch?: boolean;
   dev?: boolean;
   output?: string;
+  platform?: string;
 } 

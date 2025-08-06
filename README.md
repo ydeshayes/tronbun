@@ -1,4 +1,4 @@
-# Tronbun (ALPHA, macOS only build for now)
+# Tronbun (ALPHA)
 
 <div align="center">
   <img src="assets/logo.webp" alt="Tronbun Application Example" width="300">
@@ -38,6 +38,9 @@ bun run start
 
 # Or compile
 bun run compile
+
+# Compile for Windows
+bun run compile --platform windows
 ```
 
 ## CLI Commands
@@ -76,6 +79,22 @@ Run the built application.
 
 ```bash
 npx tronbun start
+```
+
+### `compile`
+Create an executable for your application.
+
+```bash
+# Compile for current platform (auto-detected)
+npx tronbun compile
+
+# Compile for specific platform
+npx tronbun compile --platform windows
+npx tronbun compile --platform macos
+
+# Compile with custom output name
+npx tronbun compile -o my-app
+npx tronbun compile --platform windows -o my-app
 ```
 
 ## Project Structure
@@ -445,12 +464,63 @@ export class WeatherWindow extends WindowIPC {
 }
 ```
 
+## Platform-Specific Compilation
+
+Tronbun supports compilation for different platforms:
+
+### Windows Compilation
+Creates a standalone `.exe` executable with web assets in a `dist/` folder.
+
+```bash
+npx tronbun compile --platform windows
+```
+
+**Output structure:**
+```
+my-app/
+├── my-app.exe          # Main executable
+├── webview_main.exe    # Webview component (same directory)
+├── libstdc++-6.dll     # Required runtime library (Windows only)
+├── dist/               # Web assets
+│   ├── index.html
+│   ├── index.js
+│   └── ...
+└── assets/
+    └── icon.ico        # App icon (optional)
+```
+
+### macOS Compilation
+Creates a `.app` bundle with proper macOS app structure.
+
+```bash
+npx tronbun compile --platform macos
+```
+
+**Output structure:**
+```
+my-app.app/
+├── Contents/
+│   ├── MacOS/
+│   │   └── my-app      # Main executable
+│   ├── Resources/
+│   │   ├── dist/       # Web assets
+│   │   ├── webview/    # Webview component
+│   │   └── icon.icns   # App icon
+│   └── Info.plist      # App metadata
+```
+
+### Cross-Platform Development
+- Use `--platform auto` (default) to compile for the current platform
+- Web assets are automatically copied to the appropriate location
+- App icons are supported (`.ico` for Windows, `.icns` for macOS)
+
 ## Development Tips
 
 1. **Hot Reload**: Use `bun run dev` for automatic rebuilding during development
 2. **Debugging**: Backend logs appear in terminal, frontend logs in webview dev tools
 3. **Performance**: The backend runs in Bun (fast), webview renders HTML/CSS/JS natively
 4. **Distribution**: Built apps are portable - just ship the compiled files
+5. **Platform Detection**: The CLI automatically detects your platform for compilation
 
 # Library development
 
