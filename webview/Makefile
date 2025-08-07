@@ -1,6 +1,28 @@
 # Simple Makefile for webview threading test
 CC = gcc
 CXX = g++
+
+# Use MSYS2/MinGW64 on Windows if available
+ifeq ($(OS),Windows_NT)
+    # Check for MSYS2 MinGW64
+    ifeq ($(shell test -f "C:/msys64/mingw64/bin/g++.exe" && echo "exists"),exists)
+        CC = C:/msys64/mingw64/bin/gcc.exe
+        CXX = C:/msys64/mingw64/bin/g++.exe
+    # Check for MSYS2 MinGW32
+    else ifeq ($(shell test -f "C:/msys64/mingw32/bin/g++.exe" && echo "exists"),exists)
+        CC = C:/msys64/mingw32/bin/gcc.exe
+        CXX = C:/msys64/mingw32/bin/g++.exe
+    # Check for standalone MinGW
+    else ifeq ($(shell test -f "C:/mingw64/bin/g++.exe" && echo "exists"),exists)
+        CC = C:/mingw64/bin/gcc.exe
+        CXX = C:/mingw64/bin/g++.exe
+    # Check for standalone MinGW32
+    else ifeq ($(shell test -f "C:/mingw32/bin/g++.exe" && echo "exists"),exists)
+        CC = C:/mingw32/bin/gcc.exe
+        CXX = C:/mingw32/bin/g++.exe
+    endif
+endif
+
 CFLAGS = -std=c99 -Wall -Wextra -I../vendors/webview/core/include
 CXXFLAGS = -std=c++11 -Wall -Wextra -I../vendors/webview/core/include
 
@@ -15,6 +37,7 @@ ifeq ($(UNAME_S),Linux)
     CFLAGS += $(shell pkg-config --cflags gtk+-3.0 webkit2gtk-4.0)
     LDFLAGS += $(shell pkg-config --libs gtk+-3.0 webkit2gtk-4.0) -lpthread
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
+    TARGET_EXT = 
 endif
 
 ifeq ($(UNAME_S),Darwin)
@@ -22,6 +45,7 @@ ifeq ($(UNAME_S),Darwin)
     CFLAGS += -DWEBVIEW_COCOA=1
     LDFLAGS += -framework Cocoa -framework WebKit
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
+    TARGET_EXT = 
 endif
 
 ifeq ($(OS),Windows_NT)
@@ -29,22 +53,58 @@ ifeq ($(OS),Windows_NT)
     CFLAGS += -DWEBVIEW_EDGE=1
     LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
+    TARGET_EXT = .exe
+    
+    # Static linking flags for Windows
+    LDFLAGS += -lwinpthread
+    STATIC_CXXFLAGS = $(CXXFLAGS) -static-libgcc -static-libstdc++
+    STATIC_LDFLAGS = $(LDFLAGS) -static-libgcc -static-libstdc++
+    
+    # Full static linking (if available)
+    FULL_STATIC_CXXFLAGS = $(CXXFLAGS) -static
+    FULL_STATIC_LDFLAGS = -static -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -lwinpthread
 endif
 
-TARGETS = $(BUILD_DIR)/webview_main
+TARGETS = $(BUILD_DIR)/webview_main$(TARGET_EXT)
+STATIC_TARGETS = $(BUILD_DIR)/webview_main_static$(TARGET_EXT)
+FULL_STATIC_TARGETS = $(BUILD_DIR)/webview_main_full_static$(TARGET_EXT)
 
-.PHONY: all clean help test
+.PHONY: all clean help test static full-static
 
 all: $(TARGETS)
+
+static: $(STATIC_TARGETS)
+
+full-static: $(FULL_STATIC_TARGETS)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/webview_main: webview_main.c $(WEBVIEW_IMPL) | $(BUILD_DIR)
+$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(LDFLAGS)
 
-# Convenience target for just 'webview_main'
-webview_main: $(BUILD_DIR)/webview_main
+$(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) | $(BUILD_DIR)
+ifeq ($(OS),Windows_NT)
+	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(STATIC_LDFLAGS)
+else
+	@echo "Static linking is currently only supported on Windows"
+	@echo "Building regular version instead..."
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(LDFLAGS)
+endif
+
+$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) | $(BUILD_DIR)
+ifeq ($(OS),Windows_NT)
+	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(FULL_STATIC_LDFLAGS)
+else
+	@echo "Full static linking is currently only supported on Windows"
+	@echo "Building regular version instead..."
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(LDFLAGS)
+endif
+
+# Convenience targets
+webview_main: $(BUILD_DIR)/webview_main$(TARGET_EXT)
+webview_main_static: $(BUILD_DIR)/webview_main_static$(TARGET_EXT)
+webview_main_full_static: $(BUILD_DIR)/webview_main_full_static$(TARGET_EXT)
 
 clean:
 	rm -rf $(BUILD_DIR)
@@ -52,17 +112,42 @@ clean:
 
 help:
 	@echo "Available targets:"
-	@echo "  all          - Build both programs"
-	@echo "  webview_main - Build the main webview program with threading"
-	@echo "  clean        - Remove built executables and temp files"
-	@echo "  help         - Show this help message"
+	@echo "  all              - Build regular webview executable"
+	@echo "  static           - Build webview with static linking (Windows only)"
+	@echo "  full-static      - Build webview with full static linking (Windows only)"
+	@echo "  webview_main     - Build the main webview program"
+	@echo "  webview_main_static - Build the main webview program with static linking"
+	@echo "  webview_main_full_static - Build the main webview program with full static linking"
+	@echo "  clean            - Remove built executables and temp files"
+	@echo "  help             - Show this help message"
 	@echo ""
 	@echo "Usage:"
-	@echo "  1. make all"
-	@echo "  2. ./$(BUILD_DIR)/webview_main"
+	@echo "  1. make all          # Regular build"
+	@echo "  2. make static       # Static build (Windows)"
+	@echo "  3. make full-static  # Full static build (Windows)"
+	@echo "  4. ./$(BUILD_DIR)/webview_main$(TARGET_EXT)"
+	@echo "  5. ./$(BUILD_DIR)/webview_main_static$(TARGET_EXT)"
+	@echo "  6. ./$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT)"
+	@echo ""
+	@echo "Compiler detection:"
+	@echo "  CC=$(CC)"
+	@echo "  CXX=$(CXX)"
 
 # Simple test target
 test: all
 	@echo "Starting webview_main in the background..."
 	@echo "Press Ctrl+C to stop the webview when done."
-	@./$(BUILD_DIR)/webview_main
+	@./$(BUILD_DIR)/webview_main$(TARGET_EXT)
+
+# Debug target to show build information
+debug:
+	@echo "Build Configuration:"
+	@echo "  OS: $(OS)"
+	@echo "  UNAME_S: $(UNAME_S)"
+	@echo "  CC: $(CC)"
+	@echo "  CXX: $(CXX)"
+	@echo "  CFLAGS: $(CFLAGS)"
+	@echo "  CXXFLAGS: $(CXXFLAGS)"
+	@echo "  LDFLAGS: $(LDFLAGS)"
+	@echo "  WEBVIEW_IMPL: $(WEBVIEW_IMPL)"
+	@echo "  TARGET_EXT: $(TARGET_EXT)"

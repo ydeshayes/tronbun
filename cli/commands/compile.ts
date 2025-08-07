@@ -1,4 +1,4 @@
-import { resolve, basename } from "path";
+import { resolve, basename, dirname } from "path";
 import { existsSync, writeFileSync } from "fs";
 import { $ } from "bun";
 import type { TronbunConfig, CompileOptions } from "../types.js";
@@ -31,6 +31,98 @@ export class CompileCommand {
       return false;
     }
 
+    // Determine target platform
+    const targetPlatform = options.platform || 'auto';
+    const currentPlatform = Utils.getPlatform();
+    const platform = targetPlatform === 'auto' ? currentPlatform : targetPlatform;
+
+    if (platform === 'windows') {
+      return await this.compileForWindows(config, projectRoot, mainFile, options);
+    } else if (platform === 'macos') {
+      return await this.compileForMacOS(config, projectRoot, mainFile, options);
+    } else {
+      console.error("❌ Unsupported platform:", platform);
+      return false;
+    }
+  }
+
+  private static async compileForWindows(
+    config: TronbunConfig,
+    projectRoot: string,
+    mainFile: string,
+    options: CompileOptions
+  ): Promise<boolean> {
+    const outputName = options.output || config.name;
+    const executablePath = resolve(projectRoot, 'build', `${outputName}.exe`);
+
+    try {
+      console.log("🔨 Creating Windows executable...");
+      
+      const compileOptions = [
+        "build",
+        mainFile,
+        "--compile",
+        "--outfile", executablePath,
+        "--target", "bun"
+      ];
+
+      if (config.build.minify) {
+        compileOptions.push("--minify");
+      }
+
+      await $`bun ${compileOptions}`;
+      
+      // Copy web assets to a dist folder next to the executable
+      const webDistDir = resolve(projectRoot, config.web.outDir);
+      if (existsSync(webDistDir)) {
+        const assetsDir = resolve(projectRoot, "build");
+        Utils.ensureDir(assetsDir);
+        
+        console.log("📁 Copying web assets...");
+        await Utils.copyDirectory(webDistDir, assetsDir);
+        console.log("✅ Web assets copied to build/");
+      }
+      
+      // Copy webview executable to the same directory as the compiled executable
+      const tronbunRoot = resolve(__dirname, "..", "..");
+      const webviewExecutable = resolve(tronbunRoot, "webview", "build", "webview_main_win.exe");
+      
+      if (existsSync(webviewExecutable)) {
+        console.log("🖥️  Copying webview executable...");
+        // Copy webview executable to the same directory as the compiled executable
+        await Utils.copyFile(webviewExecutable, resolve(dirname(executablePath), "webview_main_win.exe"));
+        console.log("✅ Webview executable copied");
+      } else {
+        console.warn("⚠️  Webview executable not found at:", webviewExecutable);
+        console.warn("    The compiled app may not work correctly");
+      }
+
+      // Copy app icon if available
+      const iconPath = resolve(projectRoot, "assets", "icon.ico");
+      if (existsSync(iconPath)) {
+        console.log("🎨 App icon found:", iconPath);
+        console.log("   Note: Windows executable icons need to be embedded during compilation");
+        console.log("   Consider using a tool like rcedit to set the icon after compilation");
+      } else {
+        console.warn("⚠️  App icon not found at:", iconPath);
+        console.warn("    Consider adding an icon.ico file to the assets folder");
+      }
+
+      console.log("✅ Windows executable created:", executablePath);
+      console.log("🚀 You can now run:", executablePath);
+      return true;
+    } catch (error) {
+      console.error("❌ Windows compilation failed:", error);
+      return false;
+    }
+  }
+
+  private static async compileForMacOS(
+    config: TronbunConfig,
+    projectRoot: string,
+    mainFile: string,
+    options: CompileOptions
+  ): Promise<boolean> {
     // Determine output name and create macOS app bundle structure
     const outputName = options.output || config.name;
     const appBundleName = `${outputName}.app`;
@@ -70,7 +162,7 @@ export class CompileCommand {
         Utils.ensureDir(resolve(resourcesDir, "dist"));
         
         console.log("📁 Copying web assets...");
-        await $`cp -r ${webDistDir} ${resourcesDir}/dist/`;
+        await Utils.copyDirectory(webDistDir, resolve(resourcesDir, "dist"));
         console.log("✅ Web assets copied");
       }
       
@@ -83,7 +175,7 @@ export class CompileCommand {
         Utils.ensureDir(webviewDir);
         
         console.log("🖥️  Copying webview executable...");
-        await $`cp ${webviewExecutable} ${webviewDir}/`;
+        await Utils.copyFile(webviewExecutable, resolve(webviewDir, "webview_main"));
         console.log("✅ Webview executable copied");
       } else {
         console.warn("⚠️  Webview executable not found at:", webviewExecutable);
@@ -94,7 +186,7 @@ export class CompileCommand {
       const iconPath = resolve(projectRoot, "assets", "icon.icns");
       if (existsSync(iconPath)) {
         console.log("🎨 Copying app icon...");
-        await $`cp ${iconPath} ${resourcesDir}/icon.icns`;
+        await Utils.copyFile(iconPath, resolve(resourcesDir, "icon.icns"));
         console.log("✅ App icon copied");
       } else {
         console.warn("⚠️  App icon not found at:", iconPath);
@@ -140,7 +232,7 @@ export class CompileCommand {
       console.log("🚀 You can now double-click the app or run:", `open ${appBundleName}`);
       return true;
     } catch (error) {
-      console.error("❌ Compilation failed:", error);
+      console.error("❌ macOS compilation failed:", error);
       return false;
     }
   }

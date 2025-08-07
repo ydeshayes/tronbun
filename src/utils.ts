@@ -6,7 +6,11 @@ import { ConfigManager } from "../cli/config.js";
 import type { TronbunConfig } from "../cli/types.js";
 
 export function isCompiledExecutable() {
-    return import.meta.url.includes('$bunfs') && process.argv[0] === 'bun';
+    // Check if we're running from a compiled executable
+    // When compiled, import.meta.url will contain '$bunfs' (Bun's virtual filesystem)
+    // and we're not running directly from bun
+    console.log("isCompiledExecutable", import.meta.url.includes('$bunfs'), process.argv, process.argv[0] !== 'bun', process.argv[1]?.endsWith('.exe'));
+    return import.meta.url.includes('$bunfs') || process.argv[1]?.endsWith('.exe');
 }
 
 function loadProjectConfig(projectRoot?: string): TronbunConfig {
@@ -24,7 +28,6 @@ function loadProjectConfig(projectRoot?: string): TronbunConfig {
  * @returns The resolved absolute path to the web asset
  */
 export function resolveWebAssetPath(relativePath: string, callerDirname: string, projectRoot?: string): string {
-    console.log("isCompiledExecutable()", isCompiledExecutable(), process.cwd());
     
     // Load configuration to get the actual output directories
     const config = loadProjectConfig(projectRoot);
@@ -50,6 +53,14 @@ export function resolveWebAssetPath(relativePath: string, callerDirname: string,
                 // Legacy structure - assets are relative to executable
                 executableDir = dirname(execPath);
             }
+
+            return resolve(executableDir, "dist", relativePath);
+        } else if (process.argv[1] && process.argv[1].endsWith('.exe')) {
+           const exePath = process.execPath;
+           const realDir = dirname(exePath);
+            executableDir = realDir;
+
+            return resolve(executableDir, relativePath);
         } else {
             // Fallback: assume the executable is in the current working directory
             executableDir = process.cwd();
@@ -74,30 +85,8 @@ export function resolveWebAssetPath(relativePath: string, callerDirname: string,
 export function findWebAssetPath(relativePath: string, callerDirname: string, projectRoot?: string): string | null {
     const primaryPath = resolveWebAssetPath(relativePath, callerDirname, projectRoot);
 
-    console.log("primaryPath", primaryPath);
     if (existsSync(primaryPath)) {
         return primaryPath;
-    }
-    
-    // Load configuration for fallback paths
-    const config = loadProjectConfig(projectRoot);
-    const webOutDir = config.web?.outDir || "dist/web";
-    const publicDir = config.web?.publicDir || "public";
-    
-    // Fallback strategies if primary path doesn't exist
-    const fallbackPaths = [
-        resolve(callerDirname, "..", publicDir, relativePath),
-        resolve(process.cwd(), webOutDir, relativePath),
-        resolve(process.cwd(), publicDir, relativePath),
-        // Legacy fallbacks for backwards compatibility
-        resolve(process.cwd(), "dist", relativePath),
-        resolve(process.cwd(), "public", relativePath)
-    ];
-    
-    for (const fallbackPath of fallbackPaths) {
-        if (existsSync(fallbackPath)) {
-            return fallbackPath;
-        }
     }
     
     return null;
@@ -120,8 +109,6 @@ export function setupHotReload(webAssetPath: string, onReload: () => void): () =
     const webDir = dirname(webAssetPath);
     const reloadSignalFile = resolve(webDir, '.dev-reload');
     
-    console.log("🔥 Hot reload enabled, watching:", reloadSignalFile);
-    
     let lastReloadTime = 0;
     
     // Read initial timestamp if file exists
@@ -140,7 +127,6 @@ export function setupHotReload(webAssetPath: string, onReload: () => void): () =
                 const newReloadTime = parseInt(readFileSync(reloadSignalFile, 'utf8'));
                 if (newReloadTime > lastReloadTime) {
                     lastReloadTime = newReloadTime;
-                    console.log("🔥 Hot reload triggered!");
                     onReload();
                 }
             } catch (error) {
@@ -155,7 +141,6 @@ export function setupHotReload(webAssetPath: string, onReload: () => void): () =
         try {
             const fs = require('fs');
             fs.unwatchFile(reloadSignalFile);
-            console.log("🔥 Hot reload watcher stopped");
         } catch (error) {
             // Ignore cleanup errors
         }
@@ -169,13 +154,12 @@ export interface WebviewPathOptions {
 
 export function resolveWebviewPath(options: WebviewPathOptions = {}): string {
     const platform = options.platform || process.platform;
-    const isCompiledExecutable = options.isCompiledExecutable ?? 
-        (import.meta.url.includes('$bunfs') && process.argv[0] === 'bun');
+    const isCompiled = options.isCompiledExecutable ?? isCompiledExecutable();
     
     // Get the executable name based on platform
     const executableName = getWebviewExecutableName(platform);
     
-    if (isCompiledExecutable) {
+    if (isCompiled) {
         return resolveCompiledExecutablePath(executableName, platform);
     } else {
         return resolveDevelopmentPath(executableName);
@@ -185,7 +169,8 @@ export function resolveWebviewPath(options: WebviewPathOptions = {}): string {
 function getWebviewExecutableName(platform: NodeJS.Platform): string {
     switch (platform) {
         case 'win32':
-            return 'webview_main.exe';
+            // Try static version first, then fallback to regular
+            return 'webview_main_win.exe';
         case 'darwin':
         case 'linux':
             return 'webview_main';
@@ -198,14 +183,22 @@ function resolveCompiledExecutablePath(executableName: string, platform: NodeJS.
     const originalCommand = process.argv0;
     let executableDir: string;
     
-    if (originalCommand && originalCommand !== 'bun' && originalCommand.includes('/')) {
+    if (platform === 'win32' || (originalCommand && originalCommand !== 'bun' && originalCommand.includes('/'))) {
         const execPath = resolve(originalCommand);
         executableDir = getExecutableDirectory(execPath, platform);
     } else {
         executableDir = process.cwd();
     }
     
-    const webviewPath = resolve(executableDir, 'webview', 'build', executableName);
+    let webviewPath: string;
+    
+    if (platform === 'win32') {
+        // On Windows, webview executable is in the same directory as the main executable
+        webviewPath = resolve(executableDir, executableName);
+    } else {
+        // On macOS/Linux, webview executable is in webview/build subdirectory
+        webviewPath = resolve(executableDir, 'webview', 'build', executableName);
+    }
     
     if (!existsSync(webviewPath)) {
         throw new Error(`Webview executable not found at: ${webviewPath}`);
@@ -289,6 +282,13 @@ function getDevelopmentSearchPaths(executableName: string): string[] {
     const currentDir = dirname(fileURLToPath(import.meta.url));
     paths.push(resolve(join(currentDir, '..', 'webview', 'build', executableName)));
     
+    // 5. For Windows, also try the regular version as fallback
+    if (process.platform === 'win32' && executableName.includes('_static')) {
+        const regularName = executableName.replace('_static', '');
+        paths.push(resolve(dirname(executablePath || process.cwd()), 'webview', 'build', regularName));
+        paths.push(join(process.cwd(), 'webview', 'build', regularName));
+        paths.push(resolve(join(currentDir, '..', 'webview', 'build', regularName)));
+    }
     
     return paths;
 }

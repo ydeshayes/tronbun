@@ -1,6 +1,6 @@
 {
   "name": "tronbun",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "A webview library for Bun",
   "main": "src/index.ts",
   "bin": {
@@ -11,6 +11,13 @@
     "build:webview": "cd webview && make all",
     "cli": "bun run cli/index.ts"
   },
+  "files": [
+    "cli/*",
+    "src/*",
+    "webview/build/webview_main_win.exe",
+    "webview/build/webview_main",
+    "assets/*"
+  ],
   "keywords": [
     "desktop",
     "webview",
