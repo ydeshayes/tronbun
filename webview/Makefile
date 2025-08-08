@@ -34,28 +34,31 @@ UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Linux)
     # Linux with GTK/WebKitGTK
-    CFLAGS += $(shell pkg-config --cflags gtk+-3.0 webkit2gtk-4.0)
-    LDFLAGS += $(shell pkg-config --libs gtk+-3.0 webkit2gtk-4.0) -lpthread
+    CFLAGS += $(shell pkg-config --cflags gtk+-3.0 webkit2gtk-4.0 libnotify)
+    LDFLAGS += $(shell pkg-config --libs gtk+-3.0 webkit2gtk-4.0 libnotify) -lpthread
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_linux.c
+    TRAY_PLATFORM_IMPL = platform/platform_tray_linux.c
     TARGET_EXT = 
 endif
 
 ifeq ($(UNAME_S),Darwin)
     # macOS with Cocoa/WebKit
     CFLAGS += -DWEBVIEW_COCOA=1
-    LDFLAGS += -framework Cocoa -framework WebKit
+    LDFLAGS += -framework Cocoa -framework WebKit -framework UserNotifications
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_macos.mm
+    TRAY_PLATFORM_IMPL = platform/platform_tray_macos.mm
     TARGET_EXT = 
 endif
 
 ifeq ($(OS),Windows_NT)
     # Windows with WebView2
     CFLAGS += -DWEBVIEW_EDGE=1
-    LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi
+    LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_win.c
+    TRAY_PLATFORM_IMPL = platform/platform_tray_win.c
     TARGET_EXT = .exe
     
     # Static linking flags for Windows
@@ -65,12 +68,12 @@ ifeq ($(OS),Windows_NT)
     
     # Full static linking (if available)
     FULL_STATIC_CXXFLAGS = $(CXXFLAGS) -static
-    FULL_STATIC_LDFLAGS = -static -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lwinpthread
+    FULL_STATIC_LDFLAGS = -static -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32 -lwinpthread
 endif
 
-TARGETS = $(BUILD_DIR)/webview_main$(TARGET_EXT)
-STATIC_TARGETS = $(BUILD_DIR)/webview_main_static$(TARGET_EXT)
-FULL_STATIC_TARGETS = $(BUILD_DIR)/webview_main_full_static$(TARGET_EXT)
+TARGETS = $(BUILD_DIR)/webview_main$(TARGET_EXT) $(BUILD_DIR)/tray_main$(TARGET_EXT)
+STATIC_TARGETS = $(BUILD_DIR)/webview_main_static$(TARGET_EXT) $(BUILD_DIR)/tray_main_static$(TARGET_EXT)
+FULL_STATIC_TARGETS = $(BUILD_DIR)/webview_main_full_static$(TARGET_EXT) $(BUILD_DIR)/tray_main_full_static$(TARGET_EXT)
 
 .PHONY: all clean help test static full-static
 
@@ -87,6 +90,13 @@ $(BUILD_DIR):
 $(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(LDFLAGS)
 
+$(BUILD_DIR)/tray_main$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) | $(BUILD_DIR)
+ifeq ($(UNAME_S),Darwin)
+	$(CXX) $(CXXFLAGS) -o $@ tray_main_macos.mm $(TRAY_PLATFORM_IMPL) $(LDFLAGS)
+else
+	$(CC) $(CFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(LDFLAGS)
+endif
+
 $(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
 	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(STATIC_LDFLAGS)
@@ -96,6 +106,19 @@ else
 	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(LDFLAGS)
 endif
 
+$(BUILD_DIR)/tray_main_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) | $(BUILD_DIR)
+ifeq ($(OS),Windows_NT)
+	$(CC) $(STATIC_CXXFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(STATIC_LDFLAGS)
+else
+	@echo "Static linking is currently only supported on Windows"
+	@echo "Building regular version instead..."
+ifeq ($(UNAME_S),Darwin)
+	$(CXX) $(CXXFLAGS) -o $@ tray_main_macos.mm $(TRAY_PLATFORM_IMPL) $(LDFLAGS)
+else
+	$(CC) $(CFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(LDFLAGS)
+endif
+endif
+
 $(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
 	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(FULL_STATIC_LDFLAGS)
@@ -103,6 +126,19 @@ else
 	@echo "Full static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
 	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(LDFLAGS)
+endif
+
+$(BUILD_DIR)/tray_main_full_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) | $(BUILD_DIR)
+ifeq ($(OS),Windows_NT)
+	$(CC) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(FULL_STATIC_LDFLAGS)
+else
+	@echo "Full static linking is currently only supported on Windows"
+	@echo "Building regular version instead..."
+ifeq ($(UNAME_S),Darwin)
+	$(CXX) $(CXXFLAGS) -o $@ tray_main_macos.mm $(TRAY_PLATFORM_IMPL) $(LDFLAGS)
+else
+	$(CC) $(CFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(LDFLAGS)
+endif
 endif
 
 

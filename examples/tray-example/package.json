@@ -1,0 +1,18 @@
+{
+  "name": "tray-example",
+  "version": "1.0.0",
+  "description": "Tronbun tray icon example",
+  "main": "src/main.ts",
+  "scripts": {
+    "dev": "bun run src/main.ts",
+    "build": "tronbun build",
+    "compile": "tronbun compile"
+  },
+  "dependencies": {
+    "tronbun": "file:../.."
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}
