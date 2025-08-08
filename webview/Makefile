@@ -23,39 +23,50 @@ ifeq ($(OS),Windows_NT)
     endif
 endif
 
-CFLAGS = -std=c99 -Wall -Wextra -I../vendors/webview/core/include
-CXXFLAGS = -std=c++11 -Wall -Wextra -I../vendors/webview/core/include
+CFLAGS = -std=c99 -Wall -Wextra -I../vendors/webview/core/include -I../vendors/cJSON -I.
+CXXFLAGS = -std=c++11 -Wall -Wextra -I../vendors/webview/core/include -I../vendors/cJSON -I.
 
 # Build directory
 BUILD_DIR = build
+
+# Common IPC utilities
+IPC_COMMON = common/ipc_common.c ../vendors/cJSON/cJSON.c
+
+# Test files
+TEST_DIR = tests
+TEST_IPC_COMMON = $(TEST_DIR)/test_ipc_common.c
+
 
 # Platform-specific settings
 UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Linux)
     # Linux with GTK/WebKitGTK
-    CFLAGS += $(shell pkg-config --cflags gtk+-3.0 webkit2gtk-4.0)
-    LDFLAGS += $(shell pkg-config --libs gtk+-3.0 webkit2gtk-4.0) -lpthread
+    CFLAGS += $(shell pkg-config --cflags gtk+-3.0 webkit2gtk-4.0 libnotify)
+    LDFLAGS += $(shell pkg-config --libs gtk+-3.0 webkit2gtk-4.0 libnotify) -lpthread
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_linux.c
+    TRAY_PLATFORM_IMPL = platform/platform_tray_linux.c
     TARGET_EXT = 
 endif
 
 ifeq ($(UNAME_S),Darwin)
     # macOS with Cocoa/WebKit
     CFLAGS += -DWEBVIEW_COCOA=1
-    LDFLAGS += -framework Cocoa -framework WebKit
+    LDFLAGS += -framework Cocoa -framework WebKit -framework UserNotifications
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_macos.mm
+    TRAY_PLATFORM_IMPL = platform/platform_tray_macos.mm
     TARGET_EXT = 
 endif
 
 ifeq ($(OS),Windows_NT)
     # Windows with WebView2
     CFLAGS += -DWEBVIEW_EDGE=1
-    LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi
+    LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_win.c
+    TRAY_PLATFORM_IMPL = platform/platform_tray_win.c
     TARGET_EXT = .exe
     
     # Static linking flags for Windows
@@ -65,14 +76,14 @@ ifeq ($(OS),Windows_NT)
     
     # Full static linking (if available)
     FULL_STATIC_CXXFLAGS = $(CXXFLAGS) -static
-    FULL_STATIC_LDFLAGS = -static -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lwinpthread
+    FULL_STATIC_LDFLAGS = -static -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32 -lwinpthread
 endif
 
-TARGETS = $(BUILD_DIR)/webview_main$(TARGET_EXT)
-STATIC_TARGETS = $(BUILD_DIR)/webview_main_static$(TARGET_EXT)
-FULL_STATIC_TARGETS = $(BUILD_DIR)/webview_main_full_static$(TARGET_EXT)
+TARGETS = $(BUILD_DIR)/webview_main$(TARGET_EXT) $(BUILD_DIR)/tray_main$(TARGET_EXT)
+STATIC_TARGETS = $(BUILD_DIR)/webview_main_static$(TARGET_EXT) $(BUILD_DIR)/tray_main_static$(TARGET_EXT)
+FULL_STATIC_TARGETS = $(BUILD_DIR)/webview_main_full_static$(TARGET_EXT) $(BUILD_DIR)/tray_main_full_static$(TARGET_EXT)
 
-.PHONY: all clean help test static full-static
+.PHONY: all clean help test test-clean test-all test-app static full-static
 
 all: $(TARGETS)
 
@@ -84,25 +95,58 @@ full-static: $(FULL_STATIC_TARGETS)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(LDFLAGS)
+$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
 
-$(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) | $(BUILD_DIR)
+$(BUILD_DIR)/tray_main$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
+ifeq ($(UNAME_S),Darwin)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+else
+	$(CC) $(CFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+endif
+
+$(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
-	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(STATIC_LDFLAGS)
+	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(STATIC_LDFLAGS)
 else
 	@echo "Static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
 endif
 
-$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) | $(BUILD_DIR)
+$(BUILD_DIR)/tray_main_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
-	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(FULL_STATIC_LDFLAGS)
+	$(CC) $(STATIC_CXXFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(STATIC_LDFLAGS)
+else
+	@echo "Static linking is currently only supported on Windows"
+	@echo "Building regular version instead..."
+ifeq ($(UNAME_S),Darwin)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+else
+	$(CC) $(CFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+endif
+endif
+
+$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
+ifeq ($(OS),Windows_NT)
+	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(FULL_STATIC_LDFLAGS)
 else
 	@echo "Full static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+endif
+
+$(BUILD_DIR)/tray_main_full_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
+ifeq ($(OS),Windows_NT)
+	$(CC) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(FULL_STATIC_LDFLAGS)
+else
+	@echo "Full static linking is currently only supported on Windows"
+	@echo "Building regular version instead..."
+ifeq ($(UNAME_S),Darwin)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+else
+	$(CC) $(CFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+endif
 endif
 
 
@@ -126,6 +170,10 @@ help:
 	@echo "  webview_main_static - Build the main webview program with static linking"
 	@echo "  webview_main_full_static - Build the main webview program with full static linking"
 
+	@echo "  test             - Run unit tests for IPC common utilities"
+	@echo "  test-all         - Run all unit tests"
+	@echo "  test-app         - Run webview application for manual testing"
+	@echo "  test-clean       - Remove test binaries"
 	@echo "  clean            - Remove built executables and temp files"
 	@echo "  help             - Show this help message"
 	@echo ""
@@ -141,9 +189,28 @@ help:
 	@echo "  CC=$(CC)"
 	@echo "  CXX=$(CXX)"
 
-# Simple test target
-test: all
-	@echo "Starting webview_main in the background..."
+# Unit test targets
+test: $(BUILD_DIR)/test_ipc_common
+	@echo "🧪 Running IPC Common unit tests..."
+	@$(BUILD_DIR)/test_ipc_common
+
+
+
+$(BUILD_DIR)/test_ipc_common: $(TEST_IPC_COMMON) $(IPC_COMMON) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DTEST_BUILD -o $@ $< $(IPC_COMMON)
+
+
+
+test-clean:
+	rm -f $(BUILD_DIR)/test_*
+	@echo "Test binaries cleaned"
+
+test-all: test
+	@echo "✅ All tests completed successfully!"
+
+# Application test target (run the actual webview)
+test-app: all
+	@echo "Starting webview_main for manual testing..."
 	@echo "Press Ctrl+C to stop the webview when done."
 	@./$(BUILD_DIR)/webview_main$(TARGET_EXT)
 

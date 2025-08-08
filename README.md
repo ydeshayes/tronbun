@@ -11,6 +11,7 @@ A powerful desktop application framework that combines Bun's performance with na
 - 🚀 **Bun-powered backend**: Leverage Bun's speed and modern JavaScript APIs
 - 🌐 **Native webviews**: Use web technologies for UI
 - 🔄 **Seamless IPC**: Easy communication between Bun backend and web frontend
+- 🖱️ **System tray support**: Cross-platform tray icons with custom menus
 - 🛠️ **Built-in CLI**: Comprehensive tooling for development and building
 - ⚡ **Fast builds**: Powered by Bun's built-in bundler
 - 🔧 **TypeScript support**: Full TypeScript support for both backend and frontend
@@ -367,6 +368,174 @@ class SettingsWindow extends WindowIPC {
   }
 }
 ```
+
+### System Tray Icons
+
+Tronbun provides comprehensive system tray support with custom menus, and event handling across all platforms (Windows, macOS, Linux).
+
+#### Basic Tray Usage
+
+```typescript
+import { Tray } from "tronbun";
+
+const tray = new Tray({
+    icon: "path/to/icon.png",
+    tooltip: "My Application",
+    menu: [
+        {
+            id: 'show',
+            label: 'Show Window',
+            type: 'normal',
+            enabled: true
+        },
+        {
+            id: 'separator1',
+            label: '',
+            type: 'separator'
+        },
+        {
+            id: 'quit',
+            label: 'Quit',
+            type: 'normal',
+            accelerator: 'Cmd+Q'
+        }
+    ]
+});
+
+// Handle tray icon clicks
+tray.onClick(() => {
+    console.log("Tray icon clicked!");
+});
+
+// Handle menu item clicks
+tray.onMenuClick('show', (menuId) => {
+    console.log(`Menu item ${menuId} clicked`);
+});
+
+tray.onMenuClick('quit', async () => {
+    await tray.destroy();
+    process.exit(0);
+});
+```
+
+#### Menu Item Types
+
+Tray menus support different item types:
+
+```typescript
+const menuItems = [
+    // Normal menu item
+    {
+        id: 'action',
+        label: 'Perform Action',
+        type: 'normal',
+        enabled: true
+    },
+    
+    // Checkbox item
+    {
+        id: 'toggle',
+        label: 'Toggle Feature',
+        type: 'checkbox',
+        checked: false
+    },
+    
+    // Separator
+    {
+        id: 'sep1',
+        label: '',
+        type: 'separator'
+    },
+    
+    // Item with keyboard shortcut
+    {
+        id: 'shortcut',
+        label: 'With Shortcut',
+        type: 'normal',
+        accelerator: 'Ctrl+N'
+    }
+];
+```
+
+#### Dynamic Menu Updates
+
+Update the tray menu dynamically:
+
+```typescript
+// Update menu based on application state
+const newMenu = [
+    {
+        id: 'status',
+        label: isConnected ? 'Connected ✓' : 'Disconnected ✗',
+        type: 'normal',
+        enabled: false
+    },
+    // ... other items
+];
+
+await tray.setMenu(newMenu);
+```
+
+#### Tray with Window Control
+
+Combine tray icons with window management:
+
+```typescript
+import { Tray, Window } from "tronbun";
+
+const window = new Window({
+    title: "My App",
+    hidden: true // Start hidden
+});
+
+const tray = new Tray({
+    icon: "icon.png",
+    tooltip: "My App",
+    menu: [
+        { id: 'show', label: 'Show Window', type: 'normal' },
+        { id: 'hide', label: 'Hide Window', type: 'normal' },
+        { id: 'quit', label: 'Quit', type: 'normal' }
+    ]
+});
+
+// Toggle window visibility on tray click
+tray.onClick(() => {
+    // Toggle window visibility logic here
+});
+
+tray.onMenuClick('show', () => window.showWindow());
+tray.onMenuClick('hide', () => window.hideWindow());
+tray.onMenuClick('quit', async () => {
+    await tray.destroy();
+    await window.close();
+    process.exit(0);
+});
+```
+
+#### Platform Support
+
+- **macOS**: Uses NSStatusItem with native menu support
+- **Windows**: Uses Shell_NotifyIcon with popup menus and balloon tooltips
+- **Linux**: Uses GTK StatusIcon
+
+Check platform support:
+
+```typescript
+if (Tray.isSupported()) {
+    const tray = new Tray({ /* options */ });
+} else {
+    console.log("Tray icons not supported on this platform");
+}
+```
+
+#### Complete Tray Example
+
+See `examples/tray-example/` for a complete working example that demonstrates:
+- Tray icon creation and management
+- Custom menus with different item types
+- Click and menu event handling
+- Window control from tray
+- Proper cleanup and resource management
 
 ### File System Access
 
