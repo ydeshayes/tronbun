@@ -1,4 +1,5 @@
-import { WindowIPC, findWebAssetPath, mainHandler, windowName } from "tronbun";
+import { Tray, WindowIPC, findWebAssetPath, mainHandler, windowName } from "tronbun";
+import { join } from "path";
 
   @windowName('test_options')
   export class MainWindow extends WindowIPC {
@@ -95,6 +96,63 @@ import { WindowIPC, findWebAssetPath, mainHandler, windowName } from "tronbun";
     async handleShowWindow(): Promise<void> {
       return this.showWindow();
     }
+  }
+
+  if (Tray.isSupported()) {
+    const tray = new Tray({
+      icon: join(process.cwd(), "assets/icon.png"), // Use the smaller tray icon
+      tooltip: "Tronbun Kitchen Sink - Click for menu",
+      menu: [
+          {
+              id: 'show',
+              label: 'Show Window',
+              type: 'normal',
+              enabled: true,
+              callback: () => {
+                  console.log('Showing window from tray menu');
+                  window.showWindow();
+              }
+          },
+          {
+              id: 'hide',
+              label: 'Hide Window',
+              type: 'normal',
+              enabled: true,
+              callback: () => {
+                  console.log('Hiding window from tray menu');
+                  window.hideWindow();
+              }
+          },
+          {
+              id: 'separator1',
+              label: '',
+              type: 'separator'
+          },
+          {
+              id: 'about',
+              label: 'About Kitchen Sink',
+              type: 'normal',
+              enabled: true,
+              callback: () => {
+                  console.log('About clicked from tray menu');
+                  window.showWindow();
+              }
+          },
+          {
+              id: 'quit',
+              label: 'Quit',
+              type: 'normal',
+              enabled: true,
+              accelerator: 'Cmd+Q',
+              callback: async () => {
+                  console.log('Quitting application from tray menu');
+                  await tray.destroy();
+                  await window.close();
+                  process.exit(0);
+              }
+          }
+      ]
+    });
   }
 
   const window = new MainWindow();

@@ -21,7 +21,9 @@ export class Window {
     }
 
     private async onIPC(channel: string, data: any) {
-        console.log('onIPC', this.ipcHandlers, channel, data);
+        if (process.env.TRONBUN_DEBUG) {
+            console.log('onIPC', channel, data); // Don't log the entire handler map
+        }
         const handler = this.ipcHandlers.get(channel);
         if (handler) {
             return await handler(data);

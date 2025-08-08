@@ -86,11 +86,13 @@ export class CompileCommand {
       // Copy webview executable to the same directory as the compiled executable
       const tronbunRoot = resolve(__dirname, "..", "..");
       const webviewExecutable = resolve(tronbunRoot, "webview", "build", "webview_main_win.exe");
+      const trayExecutable = resolve(tronbunRoot, "webview", "build", "tray_main_win.exe");
       
       if (existsSync(webviewExecutable)) {
         console.log("🖥️  Copying webview executable...");
         // Copy webview executable to the same directory as the compiled executable
         await Utils.copyFile(webviewExecutable, resolve(dirname(executablePath), "webview_main_win.exe"));
+        await Utils.copyFile(trayExecutable, resolve(dirname(executablePath), "tray_main_win.exe"));
         console.log("✅ Webview executable copied");
       } else {
         console.warn("⚠️  Webview executable not found at:", webviewExecutable);
@@ -169,6 +171,7 @@ export class CompileCommand {
       // Copy webview executable to Resources
       const tronbunRoot = resolve(__dirname, "..", "..");
       const webviewExecutable = resolve(tronbunRoot, "webview", "build", "webview_main");
+      const trayExecutable = resolve(tronbunRoot, "webview", "build", "tray_main");
       
       if (existsSync(webviewExecutable)) {
         const webviewDir = resolve(resourcesDir, "webview", "build");
@@ -176,6 +179,7 @@ export class CompileCommand {
         
         console.log("🖥️  Copying webview executable...");
         await Utils.copyFile(webviewExecutable, resolve(webviewDir, "webview_main"));
+        await Utils.copyFile(trayExecutable, resolve(webviewDir, "tray_main"));
         console.log("✅ Webview executable copied");
       } else {
         console.warn("⚠️  Webview executable not found at:", webviewExecutable);
