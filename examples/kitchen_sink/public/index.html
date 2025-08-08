@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Platform Window Controls</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: transparent}
+        .controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
+        button { padding: 10px 20px; border: none; border-radius: 5px; background: #007acc; color: white; cursor: pointer; }
+        button:hover { background: #005a9e; }
+        .section { margin: 20px 0; padding: 15px; background: rgba(255,255,255,0.8); border-radius: 8px; }
+        h1 { color: #333; }
+        h2 { color: #666; }
+    </style>
+</head>
+<body>
+    <h1>🪟 Platform Window Controls Demo</h1>
+    <p>This demo shows cross-platform window functionality including transparency, blur effects, and window decorations.</p>
+    <div class='section'>
+        <h2>🎨 Visual Effects</h2>
+        <div class='controls'>
+            <button onclick='setTransparent()'>Set Transparent</button>
+            <button onclick='setOpaque()'>Set Opaque</button>
+            <button onclick='enableBlur()'>Enable Blur</button>
+            <button onclick='setOpacity(0.7)'>70% Opacity</button>
+            <button onclick='setOpacity(1.0)'>100% Opacity</button>
+        </div>
+    </div>
+    
+    <div class='section'>
+        <h2>🖼️ Window Decorations</h2>
+        <div class='controls'>
+            <button onclick='removeDecorations()'>Remove Decorations</button>
+            <button onclick='addDecorations()'>Add Decorations</button>
+            <button onclick='setResizable(false)'>Disable Resize</button>
+            <button onclick='setResizable(true)'>Enable Resize</button>
+        </div>
+    </div>
+    
+    <div class='section'>
+        <h2>📍 Window Position & State</h2>
+        <div class='controls'>
+            <button onclick='centerWindow()'>Center Window</button>
+            <button onclick='setAlwaysOnTop(true)'>Always On Top</button>
+            <button onclick='setAlwaysOnTop(false)'>Normal Level</button>
+            <button onclick='minimizeWindow()'>Minimize</button>
+            <button onclick='maximizeWindow()'>Maximize</button>
+            <button onclick='restoreWindow()'>Restore</button>
+        </div>
+    </div>
+
+    <div class='section'>
+        <h2>👁️ Window Visibility</h2>
+        <div class='controls'>
+            <button onclick='hideWindow()'>Hide Window for 5s</button>
+            <button onclick='showWindowDelayed()'>Show Window</button>
+        </div>
+    </div>
+    
+    <div class='section'>
+        <h2>ℹ️ Platform Info</h2>
+        <p id='platform-info'>Loading platform information...</p>
+    </div>
+
+  <script src="index.js"></script>
+</body>
+</html>

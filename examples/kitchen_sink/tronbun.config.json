@@ -1,0 +1,19 @@
+{
+  "name": "test-options",
+  "version": "1.0.0",
+  "main": "src/main.ts",
+  "web": {
+    "entry": "src/web/index.ts",
+    "outDir": "dist/web",
+    "publicDir": "public"
+  },
+  "backend": {
+    "entry": "src/main.ts",
+    "outDir": "dist"
+  },
+  "build": {
+    "target": "bun",
+    "minify": false,
+    "sourcemap": true
+  }
+}

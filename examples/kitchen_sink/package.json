@@ -1,0 +1,20 @@
+{
+  "name": "test-options",
+  "version": "1.0.0",
+  "description": "A Tronbun desktop application",
+  "main": "src/main.ts",
+  "scripts": {
+    "build": "tronbun build",
+    "dev": "tronbun dev",
+    "start": "tronbun run",
+    "generate-types": "tronbun generate-types",
+    "compile": "tronbun compile"
+  },
+  "dependencies": {
+    "tronbun": "../.."
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
