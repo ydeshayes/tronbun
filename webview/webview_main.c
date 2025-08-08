@@ -1,4 +1,5 @@
 #include "../vendors/webview/core/include/webview/webview.h"
+#include "platform/platform_window.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -419,6 +420,96 @@ void execute_command_dispatch(webview_t w, void* arg) {
         write_json_response(id, result, NULL);
         fprintf(stderr, "Executing ipc:response3: %s\n", result);
         webview_return(cmd->webview, ipcId, 0, result);
+    
+    // Platform window control commands
+    } else if (strcmp(method, "window_set_transparent") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_set_transparent(window);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_set_opaque") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_set_opaque(window);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_enable_blur") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_enable_blur(window);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_remove_decorations") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_remove_decorations(window);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_add_decorations") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_add_decorations(window);
+        write_response(id, "true", NULL);
+    } else if (strcmp(method, "window_set_always_on_top") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        int on_top = 1;
+        extract_param_int(params, "on_top", &on_top);
+        platform_window_set_always_on_top(window, on_top);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_set_opacity") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        float opacity = 1.0f;
+        // Extract float parameter (using string first, then convert)
+        char opacity_str[32];
+        extract_param_string(params, "opacity", opacity_str, sizeof(opacity_str));
+        if (strlen(opacity_str) > 0) {
+            opacity = (float)atof(opacity_str);
+        }
+        platform_window_set_opacity(window, opacity);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_set_resizable") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        int resizable = 1;
+        extract_param_int(params, "resizable", &resizable);
+        platform_window_set_resizable(window, resizable);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_set_position") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        int x = 0, y = 0;
+        extract_param_int(params, "x", &x);
+        extract_param_int(params, "y", &y);
+        platform_window_set_position(window, x, y);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_center") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_center(window);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_minimize") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_minimize(window);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_maximize") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_maximize(window);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_restore") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_restore(window);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_hide") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_hide(window);
+        write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_show") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_show(window);
+        write_response(id, "true", NULL);
+        
     } else {
         write_response(id, NULL, "Unknown method");
     }

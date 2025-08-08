@@ -107,4 +107,65 @@ export class Window {
     protected init(jsScript: string): void {
         this.webview.init(jsScript);
     }
+
+    async setOpacity(opacity: number) {
+        return this.webview.setOpacity(opacity);
+    }
+
+    async setResizable(resizable: boolean) {
+        return this.webview.setResizable(resizable);
+    }
+
+    async setPosition(x: number, y: number) {
+        return this.webview.setPosition(x, y);
+    }
+
+    async setAlwaysOnTop(alwaysOnTop: boolean) {
+        return this.webview.setAlwaysOnTop(alwaysOnTop);
+    }
+
+    async setTransparent() {
+        return this.webview.setTransparent();
+    }
+
+    async setOpaque() {
+        return this.webview.setOpaque();
+    }
+
+    async enableBlur() {
+        return this.webview.enableBlur();
+    }
+
+    async removeDecorations() {
+        return this.webview.removeDecorations();
+    }
+
+    async centerWindow() {
+        return this.webview.centerWindow();
+    }
+
+    async minimizeWindow() {
+        return this.webview.minimizeWindow();
+    }
+
+    async maximizeWindow() {
+        return this.webview.maximizeWindow();
+    }
+
+    async restoreWindow() {
+        return this.webview.restoreWindow();
+    }
+
+    async addDecorations() {
+        return this.webview.addDecorations();
+    }
+
+    async hideWindow() {
+        return this.webview.hideWindow();
+    }
+
+    async showWindow() {
+        return this.webview.showWindow();
+    }
+    
 }

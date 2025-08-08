@@ -10,6 +10,15 @@ export interface WebViewOptions {
     html?: string;
     url?: string;
     initScript?: string;
+    alwaysOnTop?: boolean;
+    transparent?: boolean;
+    opaque?: boolean;
+    blur?: boolean;
+    decorations?: boolean;
+    resizable?: boolean;
+    position?: { x: number; y: number };
+    center?: boolean;
+    hidden?: boolean;
 }  
 export interface WebViewResponse {
     type: 'response' | 'bind_callback' | 'ipc:call';
@@ -58,8 +67,19 @@ export class Webview {
         if (options.title) this.setTitle(options.title);
         if (options.width && options.height) this.setSize(options.width, options.height);
         if (options.html) this.setHtml(options.html);
+        
         if (options.initScript) this.init(options.initScript);
         else if (options.url) this.navigate(options.url);
+
+        if (options.alwaysOnTop) this.setAlwaysOnTop(options.alwaysOnTop);
+        if (options.transparent) this.setTransparent();
+        if (options.opaque) this.setOpaque();
+        if (options.blur) this.enableBlur();
+        if (options.decorations === false) this.removeDecorations();
+        if (options.resizable) this.setResizable(options.resizable);
+        if (options.position) this.setPosition(options.position.x, options.position.y);
+        if (options.center) this.centerWindow();
+        if (options.hidden) this.hideWindow();
     }
 
     close() {
@@ -139,7 +159,7 @@ export class Webview {
             const data = payload.data;
             const channel = payload.channel;
             const r = await this.onIPC(channel, data);
-            this.sendCommand('ipc:response', { id: response.seq, result: r }, response.seq);
+            this.sendCommand('ipc:response', { id: response.seq, result: r ?? "" }, response.seq);
         }
         
         if (pending) {   
@@ -258,5 +278,114 @@ export class Webview {
   async isready(): Promise<boolean> {
     const result = await this.sendCommand('isready');
     return result;
+  }
+
+  // === Platform Window Control Methods ===
+
+  /**
+   * Set window transparency
+   */
+  async setTransparent() {
+    return this.sendCommand('window_set_transparent');
+  }
+
+  /**
+   * Set window to be fully opaque (removes transparency)
+   */
+  async setOpaque() {
+    return this.sendCommand('window_set_opaque');
+  }
+
+  /**
+   * Enable blur/backdrop effects behind the window
+   */
+  async enableBlur() {
+    return this.sendCommand('window_enable_blur');
+  }
+
+  /**
+   * Remove window decorations (title bar, borders)
+   */
+  async removeDecorations() {
+    return this.sendCommand('window_remove_decorations');
+  }
+
+  /**
+   * Set window to always stay on top
+   * @param onTop true to enable always on top, false to disable
+   */
+  async setAlwaysOnTop(onTop: boolean = true) {
+    return this.sendCommand('window_set_always_on_top', { on_top: onTop ? 1 : 0 });
+  }
+
+  /**
+   * Set window opacity level
+   * @param opacity Opacity value from 0.0 (transparent) to 1.0 (opaque)
+   */
+  async setOpacity(opacity: number) {
+    return this.sendCommand('window_set_opacity', { opacity: opacity.toString() });
+  }
+
+  /**
+   * Set window to be resizable or fixed size
+   * @param resizable true to enable resizing, false to disable
+   */
+  async setResizable(resizable: boolean = true) {
+    return this.sendCommand('window_set_resizable', { resizable: resizable ? 1 : 0 });
+  }
+
+  /**
+   * Set window position
+   * @param x X coordinate
+   * @param y Y coordinate
+   */
+  async setPosition(x: number, y: number) {
+    return this.sendCommand('window_set_position', { x, y });
+  }
+
+  /**
+   * Center window on screen
+   */
+  async centerWindow() {
+    return this.sendCommand('window_center');
+  }
+
+  /**
+   * Minimize window
+   */
+  async minimizeWindow() {
+    return this.sendCommand('window_minimize');
+  }
+
+  /**
+   * Maximize window
+   */
+  async maximizeWindow() {
+    return this.sendCommand('window_maximize');
+  }
+
+  /**
+   * Restore window from minimized/maximized state
+   */
+  async restoreWindow() {
+    return this.sendCommand('window_restore');
+  }
+
+  async addDecorations() {
+    return this.sendCommand('window_add_decorations');
+  }
+
+  /**
+   * Hide window
+   */
+  async hideWindow() {
+    return this.sendCommand('window_hide');
+  }
+
+  /**
+   * Show window
+   */
+  async showWindow() {
+    return this.sendCommand('window_show');
   }
 }
