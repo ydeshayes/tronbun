@@ -56,7 +56,7 @@ export class Window {
         
         // Set up hot reload for file:// URLs in development mode
         if (url.startsWith('file://') && process.env.TRONBUN_DEV_MODE) {
-            this.setupHotReloadForUrl(url);
+            this.setupHotReloadForUrl();
         } else {
             this.stopHotReload();
         }
@@ -72,12 +72,11 @@ export class Window {
         await this.webview.close();
     }
 
-    private setupHotReloadForUrl(url: string): void {
+    private setupHotReloadForUrl(): void {
         this.stopHotReload();
+    
         
-        const filePath = url.replace('file://', '');
-        
-        this.hotReloadCleanup = setupHotReload(filePath, async () => {
+        this.hotReloadCleanup = setupHotReload(async () => {
             // Force a complete reload using JavaScript
             const targetUrl = this.currentUrl;
             if (targetUrl) {

@@ -100,14 +100,13 @@ export function findWebAssetPath(relativePath: string, callerDirname: string, pr
  * @param onReload - Callback function to execute when a reload is triggered
  * @returns A cleanup function to stop watching
  */
-export function setupHotReload(webAssetPath: string, onReload: () => void): () => void {
+export function setupHotReload(onReload: () => void): () => void {
     // Only enable in development mode
     if (!process.env.TRONBUN_DEV_MODE) {
         return () => {}; // Return empty cleanup function
     }
 
-    const webDir = dirname(webAssetPath);
-    const reloadSignalFile = resolve(webDir, '.dev-reload');
+    const reloadSignalFile = resolve(process.cwd(), '.dev-reload');
     
     let lastReloadTime = 0;
     
