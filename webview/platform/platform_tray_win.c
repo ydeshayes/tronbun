@@ -91,7 +91,7 @@ platform_tray_t* platform_tray_create(const char* icon_path, const char* tooltip
     if (icon_path) {
         WCHAR icon_path_w[MAX_PATH];
         MultiByteToWideChar(CP_UTF8, 0, icon_path, -1, icon_path_w, MAX_PATH);
-        tray->nid.hIcon = (HICON)LoadImage(NULL, icon_path_w, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+        tray->nid.hIcon = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
         
         if (!tray->nid.hIcon) {
             // Fallback to default icon
@@ -156,7 +156,7 @@ int platform_tray_set_icon(platform_tray_t* tray, const char* icon_path) {
     WCHAR icon_path_w[MAX_PATH];
     MultiByteToWideChar(CP_UTF8, 0, icon_path, -1, icon_path_w, MAX_PATH);
     
-    HICON new_icon = (HICON)LoadImage(NULL, icon_path_w, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+    HICON new_icon = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
     if (!new_icon) return -1;
     
     HICON old_icon = tray->nid.hIcon;
@@ -214,7 +214,7 @@ int platform_tray_set_menu(platform_tray_t* tray, const platform_menu_item_t* me
             if (menu_item->type == 2 && menu_item->checked) flags |= MF_CHECKED;
             
             UINT menu_id = tray->next_menu_id++;
-            AppendMenu(tray->menu, flags, menu_id, label_w);
+            AppendMenuW(tray->menu, flags, menu_id, label_w);
             
             // Store menu item info
             menu_item_info_t* info = (menu_item_info_t*)malloc(sizeof(menu_item_info_t));
