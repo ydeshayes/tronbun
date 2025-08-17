@@ -100,7 +100,7 @@ import { join } from "path";
 
   if (Tray.isSupported()) {
     const tray = new Tray({
-      icon: join(process.cwd(), "assets/icon.png"), // Use the smaller tray icon
+      icon: join(process.cwd(), "assets/icon.ico"), // Use the smaller tray icon
       tooltip: "Tronbun Kitchen Sink - Click for menu",
       menu: [
           {
