@@ -15,7 +15,9 @@
     "cli/*",
     "src/*",
     "webview/build/webview_main_win.exe",
+    "webview/build/tray_main_win.exe",
     "webview/build/webview_main",
+    "webview/build/tray_main",
     "assets/*"
   ],
   "keywords": [

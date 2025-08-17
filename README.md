@@ -386,7 +386,11 @@ const tray = new Tray({
             id: 'show',
             label: 'Show Window',
             type: 'normal',
-            enabled: true
+            enabled: true,
+            callback: () => {
+                console.log("Show window clicked!");
+                // Handle show window logic here
+            }
         },
         {
             id: 'separator1',
@@ -397,17 +401,36 @@ const tray = new Tray({
             id: 'quit',
             label: 'Quit',
             type: 'normal',
-            accelerator: 'Cmd+Q'
+            accelerator: 'Cmd+Q',
+            callback: async () => {
+                await tray.destroy();
+                process.exit(0);
+            }
         }
     ]
 });
 
-// Handle tray icon clicks
+// Handle tray icon clicks (optional)
 tray.onClick(() => {
     console.log("Tray icon clicked!");
 });
+```
 
-// Handle menu item clicks
+##### Alternative: External Menu Handlers
+
+You can still use the traditional approach with external handlers if preferred:
+
+```typescript
+const tray = new Tray({
+    icon: "path/to/icon.png",
+    tooltip: "My Application", 
+    menu: [
+        { id: 'show', label: 'Show Window', type: 'normal' },
+        { id: 'quit', label: 'Quit', type: 'normal', accelerator: 'Cmd+Q' }
+    ]
+});
+
+// External handlers (will override inline callbacks if both are defined)
 tray.onMenuClick('show', (menuId) => {
     console.log(`Menu item ${menuId} clicked`);
 });
@@ -420,65 +443,133 @@ tray.onMenuClick('quit', async () => {
 
 #### Menu Item Types
 
-Tray menus support different item types:
+Tray menus support different item types with optional inline callbacks:
 
 ```typescript
 const menuItems = [
-    // Normal menu item
+    // Normal menu item with callback
     {
         id: 'action',
         label: 'Perform Action',
         type: 'normal',
-        enabled: true
+        enabled: true,
+        callback: () => {
+            console.log('Action performed!');
+        }
     },
     
-    // Checkbox item
+    // Checkbox item with state management
     {
         id: 'toggle',
         label: 'Toggle Feature',
         type: 'checkbox',
-        checked: false
+        checked: false,
+        callback: () => {
+            // Toggle logic here
+            console.log('Feature toggled!');
+        }
     },
     
-    // Separator
+    // Separator (no callback needed)
     {
         id: 'sep1',
         label: '',
         type: 'separator'
     },
     
-    // Item with keyboard shortcut
+    // Item with keyboard shortcut and async callback
     {
         id: 'shortcut',
         label: 'With Shortcut',
         type: 'normal',
-        accelerator: 'Ctrl+N'
+        accelerator: 'Ctrl+N',
+        callback: async () => {
+            console.log('Shortcut activated!');
+            // Perform async operations
+            await performAsyncAction();
+        }
+    },
+    
+    // Submenu with nested callbacks
+    {
+        id: 'submenu',
+        label: 'Options',
+        type: 'submenu',
+        submenu: [
+            {
+                id: 'option1',
+                label: 'Option 1',
+                type: 'normal',
+                callback: () => console.log('Option 1 selected')
+            },
+            {
+                id: 'option2', 
+                label: 'Option 2',
+                type: 'normal',
+                callback: () => console.log('Option 2 selected')
+            }
+        ]
     }
 ];
 ```
 
 #### Dynamic Menu Updates
 
-Update the tray menu dynamically:
+Update the tray menu dynamically with callbacks:
 
 ```typescript
 // Update menu based on application state
-const newMenu = [
+let isConnected = false;
+
+const createDynamicMenu = () => [
     {
         id: 'status',
         label: isConnected ? 'Connected ✓' : 'Disconnected ✗',
         type: 'normal',
         enabled: false
     },
-    // ... other items
+    {
+        id: 'connect',
+        label: isConnected ? 'Disconnect' : 'Connect',
+        type: 'normal',
+        callback: async () => {
+            if (isConnected) {
+                // Disconnect logic
+                await disconnect();
+                isConnected = false;
+            } else {
+                // Connect logic
+                await connect();
+                isConnected = true;
+            }
+            // Update menu to reflect new state
+            await tray.setMenu(createDynamicMenu());
+        }
+    },
+    {
+        id: 'separator',
+        label: '',
+        type: 'separator'
+    },
+    {
+        id: 'refresh',
+        label: 'Refresh Status',
+        type: 'normal',
+        callback: async () => {
+            // Check connection status
+            isConnected = await checkConnectionStatus();
+            await tray.setMenu(createDynamicMenu());
+        }
+    }
 ];
 
-await tray.setMenu(newMenu);
+// Set initial menu
+await tray.setMenu(createDynamicMenu());
 ```
 
 #### Tray with Window Control
 
-Combine tray icons with window management:
+Combine tray icons with window management using inline callbacks:
 
 ```typescript
 import { Tray, Window } from "tronbun";
@@ -492,23 +583,45 @@ const tray = new Tray({
     icon: "icon.png",
     tooltip: "My App",
     menu: [
-        { id: 'show', label: 'Show Window', type: 'normal' },
-        { id: 'hide', label: 'Hide Window', type: 'normal' },
-        { id: 'quit', label: 'Quit', type: 'normal' }
+        { 
+            id: 'show', 
+            label: 'Show Window', 
+            type: 'normal',
+            callback: () => {
+                window.showWindow();
+            }
+        },
+        { 
+            id: 'hide', 
+            label: 'Hide Window', 
+            type: 'normal',
+            callback: () => {
+                window.hideWindow();
+            }
+        },
+        {
+            id: 'separator',
+            label: '',
+            type: 'separator'
+        },
+        { 
+            id: 'quit', 
+            label: 'Quit', 
+            type: 'normal',
+            callback: async () => {
+                await tray.destroy();
+                await window.close();
+                process.exit(0);
+            }
+        }
     ]
 });
 
 // Toggle window visibility on tray click
 tray.onClick(() => {
     // Toggle window visibility logic here
-});
-
-tray.onMenuClick('show', () => window.showWindow());
-tray.onMenuClick('hide', () => window.hideWindow());
-tray.onMenuClick('quit', async () => {
-    await tray.destroy();
-    await window.close();
-    process.exit(0);
+    // Note: You may need to track window state manually
+    window.showWindow(); // or implement toggle logic
 });
 ```
 
