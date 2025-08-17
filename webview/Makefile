@@ -4,8 +4,15 @@ CXX = g++
 
 # Use MSYS2/MinGW64 on Windows if available
 ifeq ($(OS),Windows_NT)
+    # Try to detect MinGW/MSYS2 automatically first
+    ifeq ($(shell which x86_64-w64-mingw32-gcc 2>/dev/null && echo "exists"),exists)
+        CC = x86_64-w64-mingw32-gcc
+        CXX = x86_64-w64-mingw32-g++
+    else ifeq ($(shell which mingw32-gcc 2>/dev/null && echo "exists"),exists)
+        CC = mingw32-gcc
+        CXX = mingw32-g++
     # Check for MSYS2 MinGW64
-    ifeq ($(shell test -f "C:/msys64/mingw64/bin/g++.exe" && echo "exists"),exists)
+    else ifeq ($(shell test -f "C:/msys64/mingw64/bin/g++.exe" && echo "exists"),exists)
         CC = C:/msys64/mingw64/bin/gcc.exe
         CXX = C:/msys64/mingw64/bin/g++.exe
     # Check for MSYS2 MinGW32
@@ -20,6 +27,10 @@ ifeq ($(OS),Windows_NT)
     else ifeq ($(shell test -f "C:/mingw32/bin/g++.exe" && echo "exists"),exists)
         CC = C:/mingw32/bin/gcc.exe
         CXX = C:/mingw32/bin/g++.exe
+    # Fallback to default system compilers
+    else
+        CC = gcc
+        CXX = g++
     endif
 endif
 
@@ -67,7 +78,7 @@ ifeq ($(OS),Windows_NT)
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_win.c
     TRAY_PLATFORM_IMPL = platform/platform_tray_win.c
-    TARGET_EXT = .exe
+    TARGET_EXT = _win.exe
     
     # Static linking flags for Windows
     LDFLAGS += -lwinpthread
@@ -116,7 +127,7 @@ endif
 
 $(BUILD_DIR)/tray_main_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
-	$(CC) $(STATIC_CXXFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(STATIC_LDFLAGS)
+	$(CC) $(CFLAGS) -static-libgcc -static-libstdc++ -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(STATIC_LDFLAGS)
 else
 	@echo "Static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
@@ -138,7 +149,7 @@ endif
 
 $(BUILD_DIR)/tray_main_full_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
-	$(CC) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(FULL_STATIC_LDFLAGS)
+	$(CC) $(CFLAGS) -static -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(FULL_STATIC_LDFLAGS)
 else
 	@echo "Full static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
