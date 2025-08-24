@@ -10,6 +10,9 @@
 // Global storage for context menu data
 static char* contextMenuJson = NULL;
 
+// Forward declaration for context menu hook function
+static void installContextMenuHook(HWND hwnd);
+
 void platform_window_set_transparent(void *native_window) {
     HWND hwnd = (HWND)native_window;
     if (hwnd) {
