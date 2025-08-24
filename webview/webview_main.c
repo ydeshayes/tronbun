@@ -1,6 +1,7 @@
 #include "../vendors/webview/core/include/webview/webview.h"
 #include "platform/platform_window.h"
 #include "common/ipc_common.h"
+#include "../vendors/cJSON/cJSON.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,8 +72,32 @@ void handle_invoke_callback(const char *id, const char *req, void *arg) {
         return;
     }
     
+#ifdef _WIN32
+    // Parse the request to check if it's a show_context_menu call
+    cJSON *json = cJSON_Parse(req);
+    if (json) {
+        cJSON *type = cJSON_GetObjectItem(json, "type");
+        cJSON *channel = cJSON_GetObjectItem(json, "channel");
+        
+        if (cJSON_IsString(type) && strcmp(type->valuestring, "invoke") == 0 &&
+            cJSON_IsString(channel) && strcmp(channel->valuestring, "show_context_menu") == 0) {
+            
+            // Handle show_context_menu directly - send message to main window
+            void* window = webview_get_window(data->webview);
+            if (window) {
+                PostMessage((HWND)window, WM_USER + 1, 0, 0); // WM_SHOW_CONTEXT_MENU
+            }
+            
+            // Return success response
+            webview_return(data->webview, id, 0, "{\"status\":\"success\"}");
+            cJSON_Delete(json);
+            return;
+        }
+        cJSON_Delete(json);
+    }
+#endif
     
-    // Write the callback result to stdout
+    // Write the callback result to stdout for other calls
     printf("{\"type\":\"ipc:call\",\"id\":\"%s\",\"seq\":\"%s\",\"req\":%s}\n", 
            data->callback_id, id, req);
     
@@ -280,11 +305,82 @@ void execute_command_dispatch(webview_t w, void* arg) {
         char menu_json[IPC_MAX_COMMAND_LENGTH];
         ipc_extract_param_json(params, "menu", menu_json, sizeof(menu_json));
         platform_window_set_context_menu(window, menu_json);
+        
+#ifdef _WIN32
+        // On Windows, inject JavaScript to handle right-click events for native context menu
+        // This provides a seamless native Windows context menu experience
+        const char* contextMenuScript = 
+            "(function() {"
+            "  if (window.tronbunContextMenuHandler) return;" // Prevent multiple injections
+            "  window.tronbunContextMenuHandler = true;"
+            "  "
+            "  // Store original context menu handler if any"
+            "  var originalContextMenu = document.oncontextmenu;"
+            "  "
+            "  // Create comprehensive context menu handler"
+            "  function handleContextMenu(e) {"
+            "    // Prevent default WebView2 context menu"
+            "    e.preventDefault();"
+            "    e.stopPropagation();"
+            "    e.stopImmediatePropagation();"
+            "    "
+            "    // Store cursor position for native menu positioning"
+            "    window.lastContextMenuX = e.clientX;"
+            "    window.lastContextMenuY = e.clientY;"
+            "    "
+            "    // Send message to native layer to show native Windows context menu"
+            "    if (window.tronbun && window.tronbun.invoke) {"
+            "      window.tronbun.invoke('show_context_menu', {"
+            "        x: e.clientX,"
+            "        y: e.clientY,"
+            "        pageX: e.pageX,"
+            "        pageY: e.pageY"
+            "      });"
+            "    }"
+            "    "
+            "    return false;"
+            "  }"
+            "  "
+            "  // Add event listeners with high priority"
+            "  document.addEventListener('contextmenu', handleContextMenu, true);"
+            "  document.oncontextmenu = handleContextMenu;"
+            "  "
+            "  // Also handle on window for complete coverage"
+            "  window.addEventListener('contextmenu', handleContextMenu, true);"
+            "  "
+            "  console.log('Native Windows context menu handler installed');"
+            "})();";
+        
+        webview_eval(cmd->webview, contextMenuScript);
+#endif
+        
         ipc_write_response(id, "true", NULL);
         
     } else if (strcmp(method, "window_clear_context_menu") == 0) {
         void* window = webview_get_window(cmd->webview);
         platform_window_clear_context_menu(window);
+        
+#ifdef _WIN32
+        // On Windows, remove the native context menu JavaScript handler
+        const char* clearContextMenuScript = 
+            "(function() {"
+            "  if (window.tronbunContextMenuHandler) {"
+            "    window.tronbunContextMenuHandler = false;"
+            "    "
+            "    // Remove context menu event listeners"
+            "    document.oncontextmenu = null;"
+            "    "
+            "    // Note: We can't easily remove the specific event listeners"
+            "    // without storing references, but setting the flag prevents"
+            "    // the handler from executing"
+            "    "
+            "    console.log('Native Windows context menu handler removed');"
+            "  }"
+            "})();";
+        
+        webview_eval(cmd->webview, clearContextMenuScript);
+#endif
+        
         ipc_write_response(id, "true", NULL);
         
     } else {

@@ -298,63 +298,97 @@ void platform_window_clear_context_menu(void *native_window) {
     fprintf(stderr, "platform_window_clear_context_menu: Native context menu cleared for window\n");
 }
 
-// Window procedure hook for handling context menu
+// Function to show native Windows context menu at cursor position
+static void showCustomContextMenu(HWND hwnd) {
+    if (!contextMenuJson) {
+        return;
+    }
+    
+    // Parse menu items and create menu dynamically
+    MenuItemData items[32];
+    int itemCount = parseMenuItems(contextMenuJson, items, 32);
+    
+    if (itemCount == 0) {
+        return;
+    }
+    
+    // Create native Windows popup menu
+    HMENU customMenu = CreatePopupMenu();
+    if (!customMenu) {
+        fprintf(stderr, "Failed to create popup menu\n");
+        return;
+    }
+    
+    // Build menu items with proper native styling
+    for (int i = 0; i < itemCount; i++) {
+        if (strcmp(items[i].type, "separator") == 0) {
+            // Add native separator
+            AppendMenuA(customMenu, MF_SEPARATOR, 0, NULL);
+        } else {
+            // Add menu item with proper flags for native appearance
+            UINT flags = MF_STRING;
+            if (!items[i].enabled) {
+                flags |= MF_GRAYED | MF_DISABLED;
+            }
+            
+            // Use InsertMenuA for better control over menu appearance
+            if (!AppendMenuA(customMenu, flags, 1000 + i, items[i].label)) {
+                fprintf(stderr, "Failed to add menu item: %s\n", items[i].label);
+            }
+        }
+    }
+    
+    // Get current cursor position
+    POINT pt;
+    GetCursorPos(&pt);
+    
+    // Ensure menu appears on screen (handle screen edges)
+    RECT screenRect;
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &screenRect, 0);
+    
+    // Get menu size to adjust position if needed
+    MENUINFO menuInfo = {0};
+    menuInfo.cbSize = sizeof(MENUINFO);
+    menuInfo.fMask = MIM_MAXHEIGHT;
+    GetMenuInfo(customMenu, &menuInfo);
+    
+    // Show native context menu with proper flags for modern Windows
+    UINT flags = TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY | TPM_VERTICAL;
+    
+    // Use TPM_WORKAREA to keep menu within work area
+    flags |= TPM_WORKAREA;
+    
+    // Set the window as foreground to ensure proper menu behavior
+    SetForegroundWindow(hwnd);
+    
+    int result = TrackPopupMenu(customMenu, flags, pt.x, pt.y, 0, hwnd, NULL);
+    
+    if (result >= 1000) {
+        int itemIndex = result - 1000;
+        if (itemIndex < itemCount) {
+            // Send context menu click event to stdout for IPC
+            printf("{\"type\":\"context_menu_click\",\"id\":\"%s\"}\n", items[itemIndex].id);
+            fflush(stdout);
+        }
+    }
+    
+    // Clean up the menu
+    DestroyMenu(customMenu);
+    
+    // Post a null message to ensure proper cleanup
+    PostMessage(hwnd, WM_NULL, 0, 0);
+}
+
+// Window procedure hook for handling custom messages
 static WNDPROC originalWndProc = NULL;
+#define WM_SHOW_CONTEXT_MENU (WM_USER + 1)
 
 static LRESULT CALLBACK ContextMenuWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
-        case WM_CONTEXTMENU:
-            if (contextMenuJson) {
-                // Parse menu items and create menu dynamically (like macOS approach)
-                MenuItemData items[32];
-                int itemCount = parseMenuItems(contextMenuJson, items, 32);
-                
-                if (itemCount == 0) {
-                    // No custom menu, use default behavior
-                    break;
-                }
-                
-                // Create custom context menu dynamically
-                HMENU customMenu = CreatePopupMenu();
-                
-                for (int i = 0; i < itemCount; i++) {
-                    if (strcmp(items[i].type, "separator") == 0) {
-                        AppendMenuA(customMenu, MF_SEPARATOR, 0, NULL);
-                    } else {
-                        UINT flags = MF_STRING;
-                        if (!items[i].enabled) {
-                            flags |= MF_GRAYED;
-                        }
-                        AppendMenuA(customMenu, flags, 1000 + i, items[i].label);
-                    }
-                }
-                
-                POINT pt;
-                pt.x = LOWORD(lParam);
-                pt.y = HIWORD(lParam);
-                
-                // If coordinates are -1, -1, use current cursor position
-                if (pt.x == -1 && pt.y == -1) {
-                    GetCursorPos(&pt);
-                }
-                
-                int result = TrackPopupMenu(customMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, 
-                                          pt.x, pt.y, 0, hwnd, NULL);
-                
-                if (result >= 1000) {
-                    int itemIndex = result - 1000;
-                    if (itemIndex < itemCount) {
-                        // Send context menu click event to stdout for IPC
-                        printf("{\"type\":\"context_menu_click\",\"id\":\"%s\"}\n", items[itemIndex].id);
-                        fflush(stdout);
-                    }
-                }
-                
-                // Clean up the dynamically created menu
-                DestroyMenu(customMenu);
-                return 0;
-            }
-            break;
+        case WM_SHOW_CONTEXT_MENU:
+            // Custom message to show context menu (sent from JavaScript)
+            showCustomContextMenu(hwnd);
+            return 0;
     }
     
     return CallWindowProc(originalWndProc, hwnd, msg, wParam, lParam);
