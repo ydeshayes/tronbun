@@ -1,5 +1,5 @@
 import { Webview } from "./Webview";
-import type { WebViewOptions } from "./Webview";
+import type { WebViewOptions, ContextMenuItem } from "./Webview";
 import { setupHotReload } from "./utils";
 
 export interface WindowOptions extends WebViewOptions {}
@@ -167,6 +167,40 @@ export class Window {
 
     async showWindow() {
         return this.webview.showWindow();
+    }
+
+    // === Context Menu Methods ===
+
+    /**
+     * Set custom context menu items
+     * @param items Array of context menu items
+     */
+    async setContextMenu(items: ContextMenuItem[]): Promise<void> {
+        return this.webview.setContextMenu(items);
+    }
+
+    /**
+     * Clear/disable custom context menu
+     */
+    async clearContextMenu(): Promise<void> {
+        return this.webview.clearContextMenu();
+    }
+
+    /**
+     * Register a callback for a specific context menu item
+     * @param itemId The ID of the menu item
+     * @param callback The callback function to execute when the item is clicked
+     */
+    registerContextMenuCallback(itemId: string, callback: () => void): void {
+        this.webview.registerContextMenuCallback(itemId, callback);
+    }
+
+    /**
+     * Unregister a callback for a specific context menu item
+     * @param itemId The ID of the menu item
+     */
+    unregisterContextMenuCallback(itemId: string): void {
+        this.webview.unregisterContextMenuCallback(itemId);
     }
     
 }

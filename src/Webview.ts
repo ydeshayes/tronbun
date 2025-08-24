@@ -1,6 +1,14 @@
 import { resolveWebviewPath } from "./utils.js";
 import { BaseProcess, type BaseResponse } from "./BaseProcess.js";
 
+export interface ContextMenuItem {
+    id: string;
+    label?: string;
+    type?: 'normal' | 'separator';
+    enabled?: boolean;
+    callback?: () => void;
+}
+
 export interface WebViewOptions {
     debug?: boolean;
     width?: number;
@@ -18,18 +26,27 @@ export interface WebViewOptions {
     position?: { x: number; y: number };
     center?: boolean;
     hidden?: boolean;
+    contextMenu?: ContextMenuItem[];
 }  
 export interface WebViewResponse extends BaseResponse {
-    type: 'response' | 'bind_callback' | 'ipc:call';
+    type: 'response' | 'bind_callback' | 'ipc:call' | 'context_menu_click';
     req?: any;
     seq?: string;
 }
 
 export class Webview extends BaseProcess {
     private bindCallbacks = new Map<string, (data: any) => void>();
+    private contextMenuCallbacks = new Map<string, () => void>();
 
     public onIPC = (channel: string, data: any) => {
         console.log('onIPC', channel, data);
+    };
+
+    public onContextMenuClick = (itemId: string) => {
+        const callback = this.contextMenuCallbacks.get(itemId);
+        if (callback) {
+            callback();
+        }
     };
 
     protected getProcessName(): string {
@@ -43,8 +60,24 @@ export class Webview extends BaseProcess {
             }
 
             const payload = JSON.parse(response.req[1]);
+            
+            // Handle context menu clicks sent via IPC
+            if (payload.channel === 'context_menu_click' && payload.data && payload.data.id) {
+                if (process.env.TRONBUN_DEBUG) {
+                    console.log('context_menu_click via IPC', payload.data.id);
+                }
+                this.onContextMenuClick(payload.data.id);
+                this.sendCommand('ipc:response', { id: response.seq, result: "ok" }, response.seq);
+                return;
+            }
+            
             const result = await this.onIPC(payload.channel, payload.data);
             this.sendCommand('ipc:response', { id: response.seq, result: result ?? "" }, response.seq);
+        } else if (response.type === 'context_menu_click' && response.id) {
+            if (process.env.TRONBUN_DEBUG) {
+                console.log('context_menu_click', response.id);
+            }
+            this.onContextMenuClick(response.id);
         }
     }
 
@@ -70,6 +103,7 @@ export class Webview extends BaseProcess {
         if (options.position) this.setPosition(options.position.x, options.position.y);
         if (options.center) this.centerWindow();
         if (options.hidden) this.hideWindow();
+        if (options.contextMenu) this.setContextMenu(options.contextMenu);
     }
     // Override cleanup to also clear bind callbacks
     override cleanup(): void {
@@ -241,5 +275,51 @@ export class Webview extends BaseProcess {
    */
   async showWindow() {
     return this.sendCommand('window_show');
+  }
+
+  // === Context Menu Methods ===
+
+  /**
+   * Set custom context menu items
+   * @param items Array of context menu items
+   */
+  async setContextMenu(items: ContextMenuItem[]): Promise<void> {
+    // Clear existing callbacks
+    this.contextMenuCallbacks.clear();
+    
+    // Register callbacks for menu items
+    for (const item of items) {
+      if (item.type !== 'separator' && item.callback) {
+        this.contextMenuCallbacks.set(item.id, item.callback);
+      }
+    }
+    
+    // Send menu configuration to native layer
+    return this.sendCommand('window_set_context_menu', { menu: items });
+  }
+
+  /**
+   * Clear/disable custom context menu
+   */
+  async clearContextMenu(): Promise<void> {
+    this.contextMenuCallbacks.clear();
+    return this.sendCommand('window_clear_context_menu');
+  }
+
+  /**
+   * Register a callback for a specific context menu item
+   * @param itemId The ID of the menu item
+   * @param callback The callback function to execute when the item is clicked
+   */
+  registerContextMenuCallback(itemId: string, callback: () => void): void {
+    this.contextMenuCallbacks.set(itemId, callback);
+  }
+
+  /**
+   * Unregister a callback for a specific context menu item
+   * @param itemId The ID of the menu item
+   */
+  unregisterContextMenuCallback(itemId: string): void {
+    this.contextMenuCallbacks.delete(itemId);
   }
 }

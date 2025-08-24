@@ -275,6 +275,18 @@ void execute_command_dispatch(webview_t w, void* arg) {
         platform_window_show(window);
         ipc_write_response(id, "true", NULL);
         
+    } else if (strcmp(method, "window_set_context_menu") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        char menu_json[IPC_MAX_COMMAND_LENGTH];
+        ipc_extract_param_json(params, "menu", menu_json, sizeof(menu_json));
+        platform_window_set_context_menu(window, menu_json);
+        ipc_write_response(id, "true", NULL);
+        
+    } else if (strcmp(method, "window_clear_context_menu") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        platform_window_clear_context_menu(window);
+        ipc_write_response(id, "true", NULL);
+        
     } else {
         ipc_write_response(id, NULL, "Unknown method");
     }

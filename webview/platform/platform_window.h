@@ -106,6 +106,19 @@ void platform_window_hide(void *native_window);
  */
 void platform_window_show(void *native_window);
 
+/**
+ * Set custom context menu items for the webview
+ * @param native_window Platform-specific window handle
+ * @param menu_json JSON string containing menu items array
+ */
+void platform_window_set_context_menu(void *native_window, const char *menu_json);
+
+/**
+ * Clear/disable custom context menu for the webview
+ * @param native_window Platform-specific window handle
+ */
+void platform_window_clear_context_menu(void *native_window);
+
 #ifdef __cplusplus
 }
 #endif

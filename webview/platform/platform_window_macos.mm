@@ -1,5 +1,12 @@
 #import <Cocoa/Cocoa.h>
+#import <WebKit/WebKit.h>
 #include "platform_window.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// Global storage for context menu data
+static NSMutableDictionary *contextMenuStorage = nil;
 
 // Helper function to recursively find WKWebView instances
 NSArray<NSView*>* findWKWebViewsInView(NSView *view) {
@@ -195,4 +202,177 @@ void platform_window_show(void *native_window) {
     if (win) {
         [win makeKeyAndOrderFront:nil];
     }
+}
+
+// Context menu handler using associated objects to avoid webview replacement
+#import <objc/runtime.h>
+
+static const char* kContextMenuItemsKey = "TronbunContextMenuItems";
+
+@interface WKWebView (TronbunContextMenu)
+@property (nonatomic, strong) NSArray *tronbun_contextMenuItems;
+@end
+
+@implementation WKWebView (TronbunContextMenu)
+
+- (NSArray *)tronbun_contextMenuItems {
+    return objc_getAssociatedObject(self, kContextMenuItemsKey);
+}
+
+- (void)setTronbun_contextMenuItems:(NSArray *)items {
+    objc_setAssociatedObject(self, kContextMenuItemsKey, items, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (void)tronbun_rightMouseDown:(NSEvent *)event {
+    NSArray *contextMenuItems = self.tronbun_contextMenuItems;
+    
+    if (!contextMenuItems || [contextMenuItems count] == 0) {
+        // No custom menu, use default behavior
+        [self tronbun_rightMouseDown:event]; // This will call the original method
+        return;
+    }
+    
+    // Create custom context menu
+    NSMenu *customMenu = [[NSMenu alloc] init];
+    
+    for (NSDictionary *item in contextMenuItems) {
+        NSString *title = item[@"label"] ?: item[@"id"];
+        NSString *itemId = item[@"id"] ?: @"";
+        BOOL enabled = item[@"enabled"] ? [item[@"enabled"] boolValue] : YES;
+        
+        if ([item[@"type"] isEqualToString:@"separator"]) {
+            [customMenu addItem:[NSMenuItem separatorItem]];
+        } else {
+            NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:title action:@selector(tronbun_contextMenuItemClicked:) keyEquivalent:@""];
+            [menuItem setTarget:self];
+            [menuItem setEnabled:enabled];
+            [menuItem setRepresentedObject:itemId];
+            [customMenu addItem:menuItem];
+        }
+    }
+    
+    // Show the custom menu at the click location
+    NSPoint clickLocation = [self convertPoint:[event locationInWindow] fromView:nil];
+    [customMenu popUpMenuPositioningItem:nil atLocation:clickLocation inView:self];
+}
+
+- (void)tronbun_contextMenuItemClicked:(NSMenuItem *)sender {
+    NSString *itemId = [sender representedObject];
+    if (itemId) {
+        // Send context menu click event to stdout for IPC
+        printf("{\"type\":\"context_menu_click\",\"id\":\"%s\"}\n", [itemId UTF8String]);
+        fflush(stdout);
+    }
+}
+
+@end
+
+// Method swizzling helper
+static void swizzleMethod(Class cls, SEL originalSelector, SEL swizzledSelector) {
+    Method originalMethod = class_getInstanceMethod(cls, originalSelector);
+    Method swizzledMethod = class_getInstanceMethod(cls, swizzledSelector);
+    
+    BOOL didAddMethod = class_addMethod(cls, originalSelector, method_getImplementation(swizzledMethod), method_getTypeEncoding(swizzledMethod));
+    
+    if (didAddMethod) {
+        class_replaceMethod(cls, swizzledSelector, method_getImplementation(originalMethod), method_getTypeEncoding(originalMethod));
+    } else {
+        method_exchangeImplementations(originalMethod, swizzledMethod);
+    }
+}
+
+void platform_window_set_context_menu(void *native_window, const char *menu_json) {
+    NSWindow *win = (__bridge NSWindow *)native_window;
+    if (!win || !menu_json) {
+        fprintf(stderr, "platform_window_set_context_menu: Invalid parameters\n");
+        return;
+    }
+    
+    fprintf(stderr, "platform_window_set_context_menu: Setting native context menu with JSON: %s\n", menu_json);
+    
+    // Initialize storage if needed
+    if (!contextMenuStorage) {
+        contextMenuStorage = [[NSMutableDictionary alloc] init];
+    }
+    
+    // Parse JSON menu items
+    NSString *jsonString = [NSString stringWithUTF8String:menu_json];
+    if (!jsonString) {
+        fprintf(stderr, "platform_window_set_context_menu: Failed to create NSString from JSON\n");
+        return;
+    }
+    
+    NSData *jsonData = [jsonString dataUsingEncoding:NSUTF8StringEncoding];
+    if (!jsonData) {
+        fprintf(stderr, "platform_window_set_context_menu: Failed to create NSData from JSON string\n");
+        return;
+    }
+    
+    NSError *error = nil;
+    NSArray *menuItems = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
+    
+    if (error) {
+        fprintf(stderr, "platform_window_set_context_menu: JSON parsing error: %s\n", [[error localizedDescription] UTF8String]);
+        return;
+    }
+    
+    if (![menuItems isKindOfClass:[NSArray class]]) {
+        fprintf(stderr, "platform_window_set_context_menu: JSON root is not an array\n");
+        return;
+    }
+    
+    fprintf(stderr, "platform_window_set_context_menu: Successfully parsed %lu menu items\n", (unsigned long)[menuItems count]);
+    
+    // Swizzle rightMouseDown method for WKWebView class (only once)
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        swizzleMethod([WKWebView class], @selector(rightMouseDown:), @selector(tronbun_rightMouseDown:));
+        fprintf(stderr, "Method swizzling applied to WKWebView rightMouseDown\n");
+    });
+    
+    // Find WKWebView instances and set context menu items
+    NSView *contentView = [win contentView];
+    NSArray<NSView*> *webviews = findWKWebViewsInView(contentView);
+    
+    for (NSView *webview in webviews) {
+        if ([webview isKindOfClass:[WKWebView class]]) {
+            WKWebView *wkWebView = (WKWebView *)webview;
+            [wkWebView setTronbun_contextMenuItems:menuItems];
+            
+            fprintf(stderr, "Native context menu items set for WKWebView with %lu items\n", (unsigned long)[menuItems count]);
+        }
+    }
+    
+    // Store menu items for this window
+    NSString *windowKey = [NSString stringWithFormat:@"%p", native_window];
+    [contextMenuStorage setObject:menuItems forKey:windowKey];
+}
+
+void platform_window_clear_context_menu(void *native_window) {
+    NSWindow *win = (__bridge NSWindow *)native_window;
+    if (!win) {
+        fprintf(stderr, "platform_window_clear_context_menu: Invalid window parameter\n");
+        return;
+    }
+    
+    // Find WKWebView instances and clear context menu items
+    NSView *contentView = [win contentView];
+    NSArray<NSView*> *webviews = findWKWebViewsInView(contentView);
+    
+    for (NSView *webview in webviews) {
+        if ([webview isKindOfClass:[WKWebView class]]) {
+            WKWebView *wkWebView = (WKWebView *)webview;
+            [wkWebView setTronbun_contextMenuItems:nil];
+            
+            fprintf(stderr, "Native context menu items cleared from WKWebView\n");
+        }
+    }
+    
+    // Remove from storage
+    if (contextMenuStorage) {
+        NSString *windowKey = [NSString stringWithFormat:@"%p", native_window];
+        [contextMenuStorage removeObjectForKey:windowKey];
+    }
+    
+    fprintf(stderr, "platform_window_clear_context_menu: Native context menu cleared for window\n");
 }
