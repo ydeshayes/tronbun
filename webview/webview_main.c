@@ -32,8 +32,7 @@ typedef struct {
 // Structure for dispatching commands to the main thread
 typedef struct {
     webview_t webview;
-    char command[IPC_MAX_COMMAND_LENGTH];
-    char response[IPC_MAX_COMMAND_LENGTH];
+    char* command;  // Dynamically allocated for large payloads
     int* response_ready;
 } command_dispatch_t;
 
@@ -83,25 +82,28 @@ void handle_invoke_callback(const char *id, const char *req, void *arg) {
 void execute_command_dispatch(webview_t w, void* arg) {
     (void)w; // Suppress unused parameter warning
     command_dispatch_t* cmd = (command_dispatch_t*)arg;
-    char method[256], id[256], params[IPC_MAX_COMMAND_LENGTH];
-    
-    fprintf(stderr, "Executing command: %s\n", cmd->command);
-    
-    if (!ipc_parse_command(cmd->command, method, id, params)) {
-        ipc_write_response(id, NULL, "Invalid command format");
+    char method[256], id[256];
+    char* params = NULL;
+
+    fprintf(stderr, "Executing command (%zu bytes)\n", strlen(cmd->command));
+
+    if (!ipc_parse_command_alloc(cmd->command, method, id, &params)) {
+        ipc_write_response("unknown", NULL, "Invalid command format");
+        ipc_free_line(cmd->command);
         *cmd->response_ready = 1;
+        free(cmd);
         return;
     }
-    
+
     webview_error_t result = WEBVIEW_ERROR_OK;
-    
+
     // Handle different webview methods
     if (strcmp(method, "set_title") == 0) {
         char title[512];
         ipc_extract_param_string(params, "title", title, sizeof(title));
         result = webview_set_title(cmd->webview, title);
         ipc_write_response(id, "true", NULL);
-        
+
     } else if (strcmp(method, "set_size") == 0) {
         int width = 800, height = 600, hints = 0;
         ipc_extract_param_int(params, "width", &width);
@@ -109,31 +111,46 @@ void execute_command_dispatch(webview_t w, void* arg) {
         ipc_extract_param_int(params, "hints", &hints);
         result = webview_set_size(cmd->webview, width, height, (webview_hint_t)hints);
         ipc_write_response(id, "true", NULL);
-        
+
     } else if (strcmp(method, "navigate") == 0) {
-        char url[1024];
+        char url[4096];  // URLs can be long
         ipc_extract_param_string(params, "url", url, sizeof(url));
         result = webview_navigate(cmd->webview, url);
         ipc_write_response(id, "true", NULL);
-        
+
     } else if (strcmp(method, "set_html") == 0) {
-        char html[IPC_MAX_COMMAND_LENGTH];
-        ipc_extract_param_string(params, "html", html, sizeof(html));
-        result = webview_set_html(cmd->webview, html);
+        // Use dynamic allocation for potentially large HTML content
+        char* html = ipc_extract_param_string_alloc(params, "html");
+        if (html) {
+            result = webview_set_html(cmd->webview, html);
+            ipc_free_string(html);
+        } else {
+            result = webview_set_html(cmd->webview, "");
+        }
         ipc_write_response(id, "true", NULL);
-        
+
     } else if (strcmp(method, "eval") == 0) {
-        char js[IPC_MAX_COMMAND_LENGTH];
-        ipc_extract_param_string(params, "js", js, sizeof(js));
-        result = webview_eval(cmd->webview, js);
+        // Use dynamic allocation for potentially large JavaScript
+        char* js = ipc_extract_param_string_alloc(params, "js");
+        if (js) {
+            result = webview_eval(cmd->webview, js);
+            ipc_free_string(js);
+        } else {
+            result = WEBVIEW_ERROR_OK;  // Empty eval is fine
+        }
         ipc_write_response(id, "true", NULL);
-        
+
     } else if (strcmp(method, "init") == 0) {
-        char js[IPC_MAX_COMMAND_LENGTH];
-        ipc_extract_param_string(params, "js", js, sizeof(js));
-        result = webview_init(cmd->webview, js);
+        // Use dynamic allocation for potentially large init scripts
+        char* js = ipc_extract_param_string_alloc(params, "js");
+        if (js) {
+            result = webview_init(cmd->webview, js);
+            ipc_free_string(js);
+        } else {
+            result = WEBVIEW_ERROR_OK;
+        }
         ipc_write_response(id, "true", NULL);
-        
+
     } else if (strcmp(method, "bind") == 0) {
         char name[256];
         ipc_extract_param_string(params, "name", name, sizeof(name));
@@ -174,17 +191,23 @@ void execute_command_dispatch(webview_t w, void* arg) {
         printf("{\"type\":\"response\",\"id\":\"%s\",\"result\":%s}\n", id, version_str);
         fflush(stdout);
     } else if (strcmp(method, "ipc:response") == 0) {
-        fprintf(stderr, "Executing ipc:response: %s\n", params);
+        fprintf(stderr, "Executing ipc:response\n");
         char ipcId[256];
         ipc_extract_param_string(params, "id", ipcId, sizeof(ipcId));
-        char result[IPC_MAX_COMMAND_LENGTH];
-        ipc_extract_param_json(params, "result", result, sizeof(result));
-        fprintf(stderr, "Executing ipc:response2: %s\n", result);
-        // For JSON responses, we need to handle raw JSON differently  
-        printf("{\"type\":\"response\",\"id\":\"%s\",\"result\":%s}\n", id, result);
-        fflush(stdout);
-        fprintf(stderr, "Executing ipc:response3: %s\n", result);
-        webview_return(cmd->webview, ipcId, 0, result);
+        // Use dynamic allocation for potentially large results
+        char* ipc_result = ipc_extract_param_json_alloc(params, "result");
+        if (ipc_result) {
+            fprintf(stderr, "Executing ipc:response with result\n");
+            // For JSON responses, we need to handle raw JSON differently
+            printf("{\"type\":\"response\",\"id\":\"%s\",\"result\":%s}\n", id, ipc_result);
+            fflush(stdout);
+            webview_return(cmd->webview, ipcId, 0, ipc_result);
+            ipc_free_string(ipc_result);
+        } else {
+            printf("{\"type\":\"response\",\"id\":\"%s\",\"result\":null}\n", id);
+            fflush(stdout);
+            webview_return(cmd->webview, ipcId, 0, "null");
+        }
     
     // Platform window control commands
     } else if (strcmp(method, "window_set_transparent") == 0) {
@@ -278,13 +301,16 @@ void execute_command_dispatch(webview_t w, void* arg) {
     } else {
         ipc_write_response(id, NULL, "Unknown method");
     }
-    
+
     if (result != WEBVIEW_ERROR_OK) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "WebView error: %d", result);
         ipc_write_response(id, NULL, error_msg);
     }
-    
+
+    // Free dynamically allocated memory
+    ipc_free_string(params);
+    ipc_free_line(cmd->command);
     *cmd->response_ready = 1;
     free(cmd);
 }
@@ -292,46 +318,45 @@ void execute_command_dispatch(webview_t w, void* arg) {
 // Thread function that monitors stdin for commands
 THREAD_RETURN stdin_monitor_thread(THREAD_ARG arg) {
     thread_context_t* context = (thread_context_t*)arg;
-    char command_buffer[IPC_MAX_COMMAND_LENGTH];
-    
-    fprintf(stderr, "Command monitor thread started (reading from stdin)\n");
-    
+
+    fprintf(stderr, "Command monitor thread started (reading from stdin with dynamic buffers)\n");
+
     while (!context->should_exit) {
-        // Read command from stdin
-        if (fgets(command_buffer, sizeof(command_buffer), stdin) != NULL) {
-            // Remove newline if present
-            size_t len = strlen(command_buffer);
-            if (len > 0 && command_buffer[len-1] == '\n') {
-                command_buffer[len-1] = '\0';
-            }
-            
-            if (strlen(command_buffer) > 0) {
-                fprintf(stderr, "New command detected: %s\n", command_buffer);
-                
+        // Read command from stdin with dynamic allocation
+        size_t command_length = 0;
+        char* command_buffer = ipc_read_line(stdin, &command_length);
+
+        if (command_buffer != NULL) {
+            if (command_length > 0) {
+                fprintf(stderr, "New command detected (%zu bytes)\n", command_length);
+
                 // Create command dispatch structure
                 command_dispatch_t* cmd = (command_dispatch_t*)malloc(sizeof(command_dispatch_t));
                 if (cmd != NULL) {
                     cmd->webview = context->webview;
-                    strncpy(cmd->command, command_buffer, IPC_MAX_COMMAND_LENGTH - 1);
-                    cmd->command[IPC_MAX_COMMAND_LENGTH - 1] = '\0';
-                    
+                    cmd->command = command_buffer;  // Transfer ownership
+
                     int response_ready = 0;
                     cmd->response_ready = &response_ready;
-                    
+
                     // Dispatch the command to the main thread
                     webview_dispatch(context->webview, execute_command_dispatch, cmd);
-                    
+
                     // Wait for response (with timeout)
                     int timeout_count = 0;
                     while (!response_ready && timeout_count < 100) {
                         thread_sleep(10);
                         timeout_count++;
                     }
-                    
+
                     if (!response_ready) {
                         ipc_write_response("unknown", NULL, "Command timeout");
                     }
+                } else {
+                    ipc_free_line(command_buffer);
                 }
+            } else {
+                ipc_free_line(command_buffer);
             }
         } else {
             // EOF or error on stdin
@@ -341,7 +366,7 @@ THREAD_RETURN stdin_monitor_thread(THREAD_ARG arg) {
             break;
         }
     }
-    
+
     fprintf(stderr, "Command monitor thread exiting\n");
     return 0;
 }

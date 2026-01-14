@@ -36,10 +36,12 @@ extern "C" {
 #endif
 
 // Common constants
-#define IPC_MAX_COMMAND_LENGTH 32768
+#define IPC_MAX_COMMAND_LENGTH 32768  // Legacy fixed buffer size for backward compatibility
 #define IPC_MAX_METHOD_LENGTH 256
 #define IPC_MAX_ID_LENGTH 256
 #define IPC_MAX_KEY_LENGTH 256
+#define IPC_INITIAL_BUFFER_SIZE 4096  // Initial size for dynamic buffers
+#define IPC_MAX_BUFFER_SIZE (256 * 1024 * 1024)  // 256MB max to prevent runaway allocations
 
 // IPC response types
 typedef enum {
@@ -67,7 +69,56 @@ typedef struct {
 typedef void (*ipc_command_executor_t)(void* target, void* dispatch_data);
 typedef THREAD_RETURN (*ipc_stdin_monitor_t)(THREAD_ARG arg);
 
+// Dynamic memory functions for large data transfer
+/**
+ * Read a complete line from a stream with dynamic allocation
+ * Handles arbitrarily large lines by growing the buffer as needed
+ * @param stream File stream to read from (typically stdin)
+ * @param length Output parameter for the length of the line (excluding null terminator)
+ * @return Dynamically allocated line (caller must free with ipc_free_line), or NULL on EOF/error
+ */
+char* ipc_read_line(FILE* stream, size_t* length);
+
+/**
+ * Free a line allocated by ipc_read_line
+ * @param line Line to free (safe to call with NULL)
+ */
+void ipc_free_line(char* line);
+
+/**
+ * Extract a string parameter with dynamic allocation (for large strings)
+ * @param params JSON parameters string
+ * @param key Parameter key to extract
+ * @return Dynamically allocated string (caller must free with ipc_free_string), or NULL if not found
+ */
+char* ipc_extract_param_string_alloc(const char* params, const char* key);
+
+/**
+ * Free a string allocated by ipc_extract_param_string_alloc
+ * @param str String to free (safe to call with NULL)
+ */
+void ipc_free_string(char* str);
+
+/**
+ * Extract a JSON parameter with dynamic allocation (for large JSON objects)
+ * @param params JSON parameters string
+ * @param key Parameter key to extract
+ * @return Dynamically allocated JSON string (caller must free with ipc_free_string), or NULL if not found
+ */
+char* ipc_extract_param_json_alloc(const char* params, const char* key);
+
 // JSON parsing functions
+/**
+ * Parse a JSON command into method, id, and params (dynamically allocated)
+ * @param json JSON command string
+ * @param method Output buffer for method name (fixed size)
+ * @param id Output buffer for command ID (fixed size)
+ * @param params Output pointer that will be set to dynamically allocated params string
+ *               (caller must free with ipc_free_string)
+ * @return 1 on success, 0 on failure
+ */
+int ipc_parse_command_alloc(const char* json, char* method, char* id, char** params);
+
 /**
  * Parse a JSON command into method, id, and params
  * @param json JSON command string

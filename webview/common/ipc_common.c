@@ -13,6 +13,166 @@
 // Global command processor callback
 static void (*g_command_processor)(const char* command, void* context) = NULL;
 
+// Dynamic line reading implementation
+char* ipc_read_line(FILE* stream, size_t* length) {
+    if (!stream) return NULL;
+
+    size_t buffer_size = IPC_INITIAL_BUFFER_SIZE;
+    size_t pos = 0;
+    char* buffer = (char*)malloc(buffer_size);
+
+    if (!buffer) return NULL;
+
+    int c;
+    while ((c = fgetc(stream)) != EOF) {
+        // Check for newline
+        if (c == '\n') {
+            break;
+        }
+
+        // Grow buffer if needed
+        if (pos + 1 >= buffer_size) {
+            size_t new_size = buffer_size * 2;
+            if (new_size > IPC_MAX_BUFFER_SIZE) {
+                fprintf(stderr, "[IPC] Line exceeds maximum buffer size (%zu bytes)\n", (size_t)IPC_MAX_BUFFER_SIZE);
+                free(buffer);
+                return NULL;
+            }
+            char* new_buffer = (char*)realloc(buffer, new_size);
+            if (!new_buffer) {
+                fprintf(stderr, "[IPC] Failed to allocate buffer of size %zu\n", new_size);
+                free(buffer);
+                return NULL;
+            }
+            buffer = new_buffer;
+            buffer_size = new_size;
+        }
+
+        buffer[pos++] = (char)c;
+    }
+
+    // Handle EOF with no data
+    if (c == EOF && pos == 0) {
+        free(buffer);
+        return NULL;
+    }
+
+    buffer[pos] = '\0';
+
+    if (length) {
+        *length = pos;
+    }
+
+    return buffer;
+}
+
+void ipc_free_line(char* line) {
+    free(line);
+}
+
+char* ipc_extract_param_string_alloc(const char* params, const char* key) {
+    if (!params || !key) return NULL;
+
+    cJSON *json = cJSON_Parse(params);
+    if (!json) return NULL;
+
+    cJSON *item = cJSON_GetObjectItem(json, key);
+    if (!item || !cJSON_IsString(item)) {
+        cJSON_Delete(json);
+        return NULL;
+    }
+
+    const char* str_value = cJSON_GetStringValue(item);
+    char* result = NULL;
+
+    if (str_value) {
+        size_t len = strlen(str_value);
+        result = (char*)malloc(len + 1);
+        if (result) {
+            memcpy(result, str_value, len + 1);
+        }
+    }
+
+    cJSON_Delete(json);
+    return result;
+}
+
+void ipc_free_string(char* str) {
+    free(str);
+}
+
+char* ipc_extract_param_json_alloc(const char* params, const char* key) {
+    if (!params || !key) return NULL;
+
+    cJSON *json = cJSON_Parse(params);
+    if (!json) return NULL;
+
+    cJSON *item = cJSON_GetObjectItem(json, key);
+    if (!item) {
+        cJSON_Delete(json);
+        return NULL;
+    }
+
+    // Convert the JSON item to string representation
+    char* json_str = cJSON_Print(item);
+    cJSON_Delete(json);
+
+    return json_str;  // Caller owns this memory (allocated by cJSON)
+}
+
+int ipc_parse_command_alloc(const char* json_string, char* method, char* id, char** params) {
+    if (!json_string || !params) return 0;
+
+    *params = NULL;
+
+    cJSON *json = cJSON_Parse(json_string);
+    if (!json) return 0;
+
+    cJSON *method_item = cJSON_GetObjectItem(json, "method");
+    if (!method_item || !cJSON_IsString(method_item)) {
+        cJSON_Delete(json);
+        return 0;
+    }
+
+    cJSON *id_item = cJSON_GetObjectItem(json, "id");
+    if (!id_item || !cJSON_IsString(id_item)) {
+        cJSON_Delete(json);
+        return 0;
+    }
+
+    cJSON *params_item = cJSON_GetObjectItem(json, "params");
+
+    const char* method_str = cJSON_GetStringValue(method_item);
+    if (strlen(method_str) >= IPC_MAX_METHOD_LENGTH) {
+        cJSON_Delete(json);
+        return 0;
+    }
+    strcpy(method, method_str);
+
+    const char* id_str = cJSON_GetStringValue(id_item);
+    if (strlen(id_str) >= IPC_MAX_ID_LENGTH) {
+        cJSON_Delete(json);
+        return 0;
+    }
+    strcpy(id, id_str);
+
+    if (params_item) {
+        char* params_str = cJSON_Print(params_item);
+        if (params_str) {
+            *params = params_str;  // Caller owns this memory now
+        } else {
+            *params = (char*)malloc(1);
+            if (*params) (*params)[0] = '\0';
+        }
+    } else {
+        *params = (char*)malloc(1);
+        if (*params) (*params)[0] = '\0';
+    }
+
+    cJSON_Delete(json);
+    return 1;
+}
+
 int ipc_parse_command(const char* json_string, char* method, char* id, char* params) {
     if (!json_string) return 0;
     
@@ -226,26 +386,23 @@ void ipc_set_command_processor(void (*processor)(const char* command, void* cont
 
 THREAD_RETURN ipc_stdin_monitor_thread(THREAD_ARG arg) {
     ipc_base_context_t* context = (ipc_base_context_t*)arg;
-    char command_buffer[IPC_MAX_COMMAND_LENGTH];
-    
-    fprintf(stderr, "[IPC] Command monitor thread started (reading from stdin)\n");
-    
+
+    fprintf(stderr, "[IPC] Command monitor thread started (reading from stdin with dynamic buffers)\n");
+
     while (!context->should_exit) {
-        // Read command from stdin
-        if (fgets(command_buffer, sizeof(command_buffer), stdin) != NULL) {
-            // Remove newline if present
-            size_t len = strlen(command_buffer);
-            if (len > 0 && command_buffer[len-1] == '\n') {
-                command_buffer[len-1] = '\0';
-            }
-            
-            if (strlen(command_buffer) > 0) {
-                fprintf(stderr, "[IPC] New command detected: %s\n", command_buffer);
-                
+        // Read command from stdin with dynamic allocation
+        size_t length = 0;
+        char* command_buffer = ipc_read_line(stdin, &length);
+
+        if (command_buffer != NULL) {
+            if (length > 0) {
+                fprintf(stderr, "[IPC] New command detected (%zu bytes)\n", length);
+
                 if (g_command_processor) {
                     g_command_processor(command_buffer, context);
                 }
             }
+            ipc_free_line(command_buffer);
         } else {
             // EOF or error on stdin
             fprintf(stderr, "[IPC] stdin closed, exiting command monitor\n");
@@ -253,7 +410,7 @@ THREAD_RETURN ipc_stdin_monitor_thread(THREAD_ARG arg) {
             break;
         }
     }
-    
+
     fprintf(stderr, "[IPC] Command monitor thread exiting\n");
     return 0;
 }

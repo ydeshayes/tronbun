@@ -213,6 +213,135 @@ int test_ipc_extract_param_json() {
     TEST_PASS();
 }
 
+int test_ipc_extract_param_string_alloc() {
+    TEST_START("ipc_extract_param_string_alloc (dynamic allocation)");
+
+    // Test simple string extraction
+    const char* json1 = "{\"title\":\"Hello World\",\"other\":123}";
+    char* value1 = ipc_extract_param_string_alloc(json1, "title");
+    TEST_ASSERT(value1 != NULL, "Should allocate string for valid key");
+    TEST_ASSERT(strcmp(value1, "Hello World") == 0, "Should extract simple string correctly");
+    ipc_free_string(value1);
+
+    // Test non-existent key
+    char* value2 = ipc_extract_param_string_alloc(json1, "missing");
+    TEST_ASSERT(value2 == NULL, "Should return NULL for missing key");
+
+    // Test very large string
+    char large_json[65536];
+    strcpy(large_json, "{\"data\":\"");
+    // Add 50000 characters
+    for (int i = 0; i < 5000; i++) {
+        strcat(large_json, "0123456789");
+    }
+    strcat(large_json, "\"}");
+
+    char* value3 = ipc_extract_param_string_alloc(large_json, "data");
+    TEST_ASSERT(value3 != NULL, "Should allocate string for large value");
+    TEST_ASSERT(strlen(value3) == 50000, "Should extract full large string");
+    ipc_free_string(value3);
+
+    // Test empty string value
+    const char* json4 = "{\"empty\":\"\"}";
+    char* value4 = ipc_extract_param_string_alloc(json4, "empty");
+    TEST_ASSERT(value4 != NULL, "Should allocate string for empty value");
+    TEST_ASSERT(strcmp(value4, "") == 0, "Should handle empty string");
+    ipc_free_string(value4);
+
+    // Test NULL params
+    char* value5 = ipc_extract_param_string_alloc(NULL, "key");
+    TEST_ASSERT(value5 == NULL, "Should return NULL for NULL params");
+
+    TEST_PASS();
+}
+
+int test_ipc_extract_param_json_alloc() {
+    TEST_START("ipc_extract_param_json_alloc (dynamic allocation)");
+
+    // Test object extraction
+    const char* json1 = "{\"config\":{\"width\":800,\"height\":600},\"other\":123}";
+    char* value1 = ipc_extract_param_json_alloc(json1, "config");
+    TEST_ASSERT(value1 != NULL, "Should allocate JSON for valid key");
+    TEST_ASSERT(strstr(value1, "width") != NULL, "Should extract JSON object");
+    TEST_ASSERT(strstr(value1, "800") != NULL, "Should contain object content");
+    ipc_free_string(value1);
+
+    // Test array extraction
+    const char* json2 = "{\"items\":[1,2,3,\"hello\"],\"other\":123}";
+    char* value2 = ipc_extract_param_json_alloc(json2, "items");
+    TEST_ASSERT(value2 != NULL, "Should allocate JSON array");
+    TEST_ASSERT(value2[0] == '[', "Should extract JSON array starting with [");
+    ipc_free_string(value2);
+
+    // Test non-existent key
+    char* value3 = ipc_extract_param_json_alloc(json1, "missing");
+    TEST_ASSERT(value3 == NULL, "Should return NULL for missing key");
+
+    // Test large nested JSON
+    char large_json[8192];
+    strcpy(large_json, "{\"data\":{\"items\":[");
+    for (int i = 0; i < 100; i++) {
+        if (i > 0) strcat(large_json, ",");
+        char item[64];
+        snprintf(item, sizeof(item), "{\"id\":%d,\"value\":\"item%d\"}", i, i);
+        strcat(large_json, item);
+    }
+    strcat(large_json, "]}}");
+
+    char* value4 = ipc_extract_param_json_alloc(large_json, "data");
+    TEST_ASSERT(value4 != NULL, "Should allocate large JSON");
+    TEST_ASSERT(strstr(value4, "items") != NULL, "Should contain nested content");
+    ipc_free_string(value4);
+
+    TEST_PASS();
+}
+
+int test_ipc_parse_command_alloc() {
+    TEST_START("ipc_parse_command_alloc (dynamic params)");
+
+    char method[256], id[256];
+    char* params = NULL;
+
+    // Test basic command parsing
+    const char* json1 = "{\"method\":\"test_method\",\"id\":\"123\",\"params\":{\"key\":\"value\"}}";
+    int result1 = ipc_parse_command_alloc(json1, method, id, &params);
+    TEST_ASSERT(result1 == 1, "Should return 1 for valid JSON");
+    TEST_ASSERT(strcmp(method, "test_method") == 0, "Method should be extracted correctly");
+    TEST_ASSERT(strcmp(id, "123") == 0, "ID should be extracted correctly");
+    TEST_ASSERT(params != NULL, "Params should be allocated");
+    TEST_ASSERT(strstr(params, "key") != NULL, "Params should contain key");
+    ipc_free_string(params);
+    params = NULL;
+
+    // Test with very large params
+    char large_json[65536];
+    strcpy(large_json, "{\"method\":\"large\",\"id\":\"456\",\"params\":{\"html\":\"");
+    // Add 50000 characters
+    for (int i = 0; i < 5000; i++) {
+        strcat(large_json, "0123456789");
+    }
+    strcat(large_json, "\"}}");
+
+    int result2 = ipc_parse_command_alloc(large_json, method, id, &params);
+    TEST_ASSERT(result2 == 1, "Should parse command with large params");
+    TEST_ASSERT(strcmp(method, "large") == 0, "Method should be extracted");
+    TEST_ASSERT(params != NULL, "Large params should be allocated");
+    TEST_ASSERT(strlen(params) > 50000, "Params should contain full content");
+    ipc_free_string(params);
+    params = NULL;
+
+    // Test invalid JSON
+    int result3 = ipc_parse_command_alloc("not valid json", method, id, &params);
+    TEST_ASSERT(result3 == 0, "Should return 0 for invalid JSON");
+    TEST_ASSERT(params == NULL, "Params should be NULL on failure");
+
+    // Test missing method
+    int result4 = ipc_parse_command_alloc("{\"id\":\"123\",\"params\":{}}", method, id, &params);
+    TEST_ASSERT(result4 == 0, "Should return 0 for missing method");
+
+    TEST_PASS();
+}
+
 int test_ipc_write_response() {
     TEST_START("ipc_write_response");
     
@@ -729,6 +858,13 @@ int main() {
     RUN_TEST(test_ipc_write_response);
     RUN_TEST(test_ipc_write_event);
     printf("✅ Core functionality tests completed successfully!\n\n");
+
+    // Dynamic allocation tests
+    printf("📋 Running dynamic allocation tests...\n");
+    RUN_TEST(test_ipc_extract_param_string_alloc);
+    RUN_TEST(test_ipc_extract_param_json_alloc);
+    RUN_TEST(test_ipc_parse_command_alloc);
+    printf("✅ Dynamic allocation tests completed!\n\n");
     
     // Advanced JSON parsing tests
     printf("📋 Running advanced JSON parsing tests...\n");
