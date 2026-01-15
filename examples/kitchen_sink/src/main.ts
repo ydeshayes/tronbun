@@ -1,5 +1,4 @@
-import { Tray, WindowIPC, findWebAssetPath, mainHandler, windowName } from "tronbun";
-import { join } from "path";
+import { Tray, WindowIPC, findWebAssetPath, resolveAssetPath, mainHandler, windowName } from "tronbun";
 
   @windowName('test_options')
   export class MainWindow extends WindowIPC {
@@ -100,7 +99,7 @@ import { join } from "path";
 
   if (Tray.isSupported()) {
     const tray = new Tray({
-      icon: join(process.cwd(), "assets/icon.ico"), // Use the smaller tray icon
+      icon: resolveAssetPath("icon.ico"), // Use the smaller tray icon
       tooltip: "Tronbun Kitchen Sink - Click for menu",
       menu: [
           {

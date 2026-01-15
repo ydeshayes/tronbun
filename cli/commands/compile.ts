@@ -1,9 +1,71 @@
 import { resolve, basename, dirname } from "path";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, writeFileSync, unlinkSync } from "fs";
 import { $ } from "bun";
 import type { TronbunConfig, CompileOptions } from "../types.js";
 import { Utils } from "../utils.js";
 import { BuildCommand } from "./build.js";
+
+/**
+ * Generates embedded-assets.ts with a map of all web files.
+ * Uses a global variable so Window.ts can access it without import path issues.
+ * Supports lazy loading by preserving the file structure.
+ *
+ * Files are compressed with gzip for:
+ * - Obfuscation (not readable with `strings` command)
+ * - Smaller binary size
+ * - Faster IPC transfers
+ */
+async function generateEmbeddedAssets(
+  projectRoot: string,
+  config: TronbunConfig,
+  embeddedFiles: Record<string, string>
+): Promise<string> {
+  // Compress each file's content with gzip and encode as base64
+  const compressedFiles: Record<string, string> = {};
+  let totalOriginal = 0;
+  let totalCompressed = 0;
+
+  for (const [path, content] of Object.entries(embeddedFiles)) {
+    const originalSize = content.length;
+    totalOriginal += originalSize;
+
+    // Compress with gzip
+    const compressed = Bun.gzipSync(Buffer.from(content, 'utf-8'));
+    const base64 = Buffer.from(compressed).toString('base64');
+
+    totalCompressed += base64.length;
+    compressedFiles[path] = base64;
+  }
+
+  const compressionRatio = ((1 - totalCompressed / totalOriginal) * 100).toFixed(1);
+  console.log(`📦 Compressed ${Object.keys(embeddedFiles).length} files (${compressionRatio}% smaller)`);
+
+  // Generate file entries
+  const fileEntries = Object.entries(compressedFiles)
+    .map(([path, content]) => `  "${path}": "${content}"`)
+    .join(',\n');
+
+  // Use globalThis to register embedded content so Window.ts can access it
+  // Content is compressed and will be decompressed at runtime
+  const embeddedModule = `// Auto-generated file - DO NOT EDIT
+// This file contains embedded web assets for production builds
+// Files are gzip compressed and base64 encoded for obfuscation and size reduction
+
+const compressedFiles: Record<string, string> = {
+${fileEntries}
+};
+
+// Register globally for tronbun to access (marked as compressed)
+(globalThis as any).__TRONBUN_EMBEDDED_FILES_COMPRESSED__ = compressedFiles;
+
+export { compressedFiles };
+`;
+
+  const embeddedPath = resolve(projectRoot, config.backend.outDir, "embedded-assets.ts");
+  await Bun.write(embeddedPath, embeddedModule);
+  console.log("✅ Generated embedded-assets.ts with", Object.keys(embeddedFiles).length, "compressed files");
+  return embeddedPath;
+}
 
 export class CompileCommand {
   static async compile(
@@ -12,23 +74,54 @@ export class CompileCommand {
     options: CompileOptions = {}
   ): Promise<boolean> {
     console.log("📦 Compiling Tronbun application to executable...");
-    
-    // First, build the application
+
+    // First, build the application (without sourcemaps for production)
+    const originalSourcemap = config.build.sourcemap;
+    config.build.sourcemap = false; // Disable sourcemaps for production
+
     const buildSuccess = await BuildCommand.build(config, projectRoot);
+    config.build.sourcemap = originalSourcemap; // Restore original config
+
     if (!buildSuccess) {
       console.error("❌ Build failed, cannot compile executable");
       return false;
     }
+
+    // Collect all web files for embedding (supports lazy loading)
+    // Enable obfuscation to make JS unreadable even if decompressed
+    console.log("🔒 Obfuscating JavaScript for production...");
+    const embeddedFiles = await BuildCommand.collectEmbeddedFiles(config, projectRoot, true);
+    if (!embeddedFiles) {
+      console.error("❌ Failed to collect embedded files");
+      return false;
+    }
+
+    // Generate embedded-assets.ts with file map
+    const embeddedAssetsPath = await generateEmbeddedAssets(projectRoot, config, embeddedFiles);
 
     const mainFile = resolve(
       projectRoot,
       config.backend.outDir,
       basename(config.backend.entry, ".ts") + ".js"
     );
-    
+
     if (!existsSync(mainFile)) {
       console.error("❌ Built application not found:", mainFile);
       return false;
+    }
+
+    // Build embedded-assets.ts to .js
+    const embeddedJsPath = embeddedAssetsPath.replace('.ts', '.js');
+    await $`bun build ${embeddedAssetsPath} --outfile ${embeddedJsPath} --target bun`;
+
+    // Save original main.js content for restoration after compile
+    const originalMainContent = await Bun.file(mainFile).text();
+
+    // Prepend import of embedded-assets to main.js so it's executed at startup
+    const embeddedImport = `import "./embedded-assets.js";\n`;
+    if (!originalMainContent.includes('embedded-assets')) {
+      await Bun.write(mainFile, embeddedImport + originalMainContent);
+      console.log("✅ Injected embedded assets import into main.js");
     }
 
     // Determine target platform
@@ -36,14 +129,45 @@ export class CompileCommand {
     const currentPlatform = Utils.getPlatform();
     const platform = targetPlatform === 'auto' ? currentPlatform : targetPlatform;
 
+    let result: boolean;
     if (platform === 'windows') {
-      return await this.compileForWindows(config, projectRoot, mainFile, options);
+      result = await this.compileForWindows(config, projectRoot, mainFile, options);
     } else if (platform === 'macos') {
-      return await this.compileForMacOS(config, projectRoot, mainFile, options);
+      result = await this.compileForMacOS(config, projectRoot, mainFile, options);
     } else {
       console.error("❌ Unsupported platform:", platform);
       return false;
     }
+
+    // Clean up: restore original main.js and remove generated files
+    try {
+      // Restore original main.js (without embedded import)
+      await Bun.write(mainFile, originalMainContent);
+
+      if (existsSync(embeddedAssetsPath)) {
+        unlinkSync(embeddedAssetsPath);
+      }
+      const embeddedJsCleanup = embeddedAssetsPath.replace('.ts', '.js');
+      if (existsSync(embeddedJsCleanup)) {
+        unlinkSync(embeddedJsCleanup);
+      }
+
+      // Remove .map files from dist/web (not needed in production)
+      const webOutDir = resolve(projectRoot, config.web.outDir);
+      if (existsSync(webOutDir)) {
+        const { readdirSync } = await import('fs');
+        const files = readdirSync(webOutDir);
+        for (const file of files) {
+          if (file.endsWith('.map')) {
+            unlinkSync(resolve(webOutDir, file));
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+
+    return result;
   }
 
   private static async compileForWindows(
@@ -71,18 +195,10 @@ export class CompileCommand {
       }
 
       await $`bun ${compileOptions}`;
-      
-      // Copy web assets to a dist folder next to the executable
-      const webDistDir = resolve(projectRoot, config.web.outDir);
-      if (existsSync(webDistDir)) {
-        const assetsDir = resolve(projectRoot, "build");
-        Utils.ensureDir(assetsDir);
-        
-        console.log("📁 Copying web assets...");
-        await Utils.copyDirectory(webDistDir, assetsDir);
-        console.log("✅ Web assets copied to build/");
-      }
-      
+
+      // Web assets are now embedded in the executable - no need to copy dist/
+      console.log("✅ Web assets embedded in executable (no external files)");
+
       // Copy webview executable to the same directory as the compiled executable
       const tronbunRoot = resolve(__dirname, "..", "..");
       const webviewExecutable = resolve(tronbunRoot, "webview", "build", "webview_main_win.exe");
@@ -157,17 +273,10 @@ export class CompileCommand {
       }
 
       await $`bun ${compileOptions}`;
-      
-      // Copy web assets to the Resources directory
-      const webDistDir = resolve(projectRoot, config.web.outDir);
-      if (existsSync(webDistDir)) {
-        Utils.ensureDir(resolve(resourcesDir, "dist"));
-        
-        console.log("📁 Copying web assets...");
-        await Utils.copyDirectory(webDistDir, resolve(resourcesDir, "dist"));
-        console.log("✅ Web assets copied");
-      }
-      
+
+      // Web assets are now embedded in the executable - no need to copy dist/
+      console.log("✅ Web assets embedded in executable (no external files)");
+
       // Copy webview executable to Resources
       const tronbunRoot = resolve(__dirname, "..", "..");
       const webviewExecutable = resolve(tronbunRoot, "webview", "build", "webview_main");
@@ -195,6 +304,16 @@ export class CompileCommand {
       } else {
         console.warn("⚠️  App icon not found at:", iconPath);
         console.warn("    The app bundle may not have an icon");
+      }
+
+      // Copy assets folder to Resources (for tray icons, etc.)
+      const assetsDir = resolve(projectRoot, "assets");
+      if (existsSync(assetsDir)) {
+        const destAssetsDir = resolve(resourcesDir, "assets");
+        Utils.ensureDir(destAssetsDir);
+        console.log("📁 Copying assets folder...");
+        await Utils.copyDirectory(assetsDir, destAssetsDir);
+        console.log("✅ Assets folder copied");
       }
 
       // Create Info.plist for the app bundle

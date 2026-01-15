@@ -44,7 +44,8 @@ export class Webview extends BaseProcess {
 
             const payload = JSON.parse(response.req[1]);
             const result = await this.onIPC(payload.channel, payload.data);
-            this.sendCommand('ipc:response', { id: response.seq, result: result ?? "" }, response.seq);
+            // Use sendCommandNoWait since ipc:response doesn't expect a reply
+            this.sendCommandNoWait('ipc:response', { id: response.seq, result: result ?? "" }, response.seq);
         }
     }
 
@@ -241,5 +242,24 @@ export class Webview extends BaseProcess {
    */
   async showWindow() {
     return this.sendCommand('window_show');
+  }
+
+  // === Virtual File System Methods (for tronbun:// protocol) ===
+
+  /**
+   * Register a file in the virtual file system.
+   * The file will be accessible via tronbun://path
+   * @param path The virtual path (e.g., "index.html" or "js/app.js")
+   * @param content The file content
+   */
+  async registerVirtualFile(path: string, content: string): Promise<void> {
+    await this.sendCommand('virtual_fs_register', { path, content });
+  }
+
+  /**
+   * Clear all files from the virtual file system.
+   */
+  async clearVirtualFiles(): Promise<void> {
+    await this.sendCommand('virtual_fs_clear');
   }
 }

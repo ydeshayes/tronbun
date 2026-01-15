@@ -1,6 +1,6 @@
 import { Webview } from "./Webview";
 import type { WebViewOptions } from "./Webview";
-import { setupHotReload } from "./utils";
+import { setupHotReload, isCompiledExecutable } from "./utils";
 
 export interface WindowOptions extends WebViewOptions {}
 
@@ -53,9 +53,49 @@ export class Window {
     }
 
     async navigate(url: string): Promise<void> {
+        // Auto-detect: if compiled and URL is file:// or embedded path, use custom tronbun:// protocol
+        if (isCompiledExecutable() && (url.startsWith('file://') || url.startsWith('/__embedded__/'))) {
+            // Check for compressed embedded files (new format)
+            const compressedFiles = (globalThis as any).__TRONBUN_EMBEDDED_FILES_COMPRESSED__ as Record<string, string> | undefined;
+
+            if (compressedFiles) {
+                try {
+                    // Decompress and register all embedded files with the virtual file system
+                    const fileCount = Object.keys(compressedFiles).length;
+                    if (process.env.TRONBUN_DEBUG) {
+                        console.log('📦 Decompressing and registering', fileCount, 'files in virtual file system');
+                    }
+
+                    for (const [path, base64Content] of Object.entries(compressedFiles)) {
+                        // Decode base64 and decompress gzip
+                        const compressed = Buffer.from(base64Content, 'base64');
+                        const decompressed = Bun.gunzipSync(compressed);
+                        // Use TextDecoder to properly convert Uint8Array to string
+                        const content = new TextDecoder('utf-8').decode(decompressed);
+
+                        await this.webview.registerVirtualFile(path, content);
+                    }
+
+                    // Navigate to the custom protocol
+                    if (process.env.TRONBUN_DEBUG) {
+                        console.log('📦 Navigating to tronbun://app/');
+                    }
+                    await this.webview.navigate('tronbun://app/');
+                    this.currentUrl = url;
+                    this.stopHotReload();
+                    return;
+                } catch (error) {
+                    console.error('Failed to decompress/register virtual files:', error);
+                    // Fall through to regular navigation
+                }
+            } else if (process.env.TRONBUN_DEBUG) {
+                console.log('📁 No embedded assets found, using file:// URL');
+            }
+        }
+
         await this.webview.navigate(url);
         this.currentUrl = url;
-        
+
         // Set up hot reload for file:// URLs in development mode
         if (url.startsWith('file://') && process.env.TRONBUN_DEV_MODE) {
             this.setupHotReloadForUrl();

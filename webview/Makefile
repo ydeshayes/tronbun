@@ -63,29 +63,32 @@ endif
 
 ifeq ($(UNAME_S),Darwin)
     # macOS with Cocoa/WebKit
-    CFLAGS += -DWEBVIEW_COCOA=1
+    CFLAGS += -DWEBVIEW_COCOA=1 -DTRONBUN_CUSTOM_SCHEME=1
+    CXXFLAGS += -DTRONBUN_CUSTOM_SCHEME=1
     LDFLAGS += -framework Cocoa -framework WebKit -framework UserNotifications
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_macos.mm
     TRAY_PLATFORM_IMPL = platform/platform_tray_macos.mm
-    TARGET_EXT = 
+    VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_macos.mm
+    TARGET_EXT =
 endif
 
 ifeq ($(OS),Windows_NT)
     # Windows with WebView2
-    CFLAGS += -DWEBVIEW_EDGE=1 -DUNICODE -D_UNICODE
-    CXXFLAGS += -DUNICODE -D_UNICODE
+    CFLAGS += -DWEBVIEW_EDGE=1 -DUNICODE -D_UNICODE -DTRONBUN_CUSTOM_SCHEME=1
+    CXXFLAGS += -DUNICODE -D_UNICODE -DTRONBUN_CUSTOM_SCHEME=1
     LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_win.c
     TRAY_PLATFORM_IMPL = platform/platform_tray_win.c
+    VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_win.cpp
     TARGET_EXT = _win.exe
-    
+
     # Static linking flags for Windows
     LDFLAGS += -lwinpthread
     STATIC_CXXFLAGS = $(CXXFLAGS) -static-libgcc -static-libstdc++
     STATIC_LDFLAGS = $(LDFLAGS) -static-libgcc -static-libstdc++
-    
+
     # Full static linking (if available)
     FULL_STATIC_CXXFLAGS = $(CXXFLAGS) -static
     FULL_STATIC_LDFLAGS = -static -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32 -lwinpthread
@@ -107,8 +110,8 @@ full-static: $(FULL_STATIC_TARGETS)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 
 $(BUILD_DIR)/tray_main$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
 ifeq ($(UNAME_S),Darwin)
@@ -206,10 +209,20 @@ test: $(BUILD_DIR)/test_ipc_common
 	@echo "🧪 Running IPC Common unit tests..."
 	@$(BUILD_DIR)/test_ipc_common
 
-
+test-memory: $(BUILD_DIR)/test_memory_leaks
+	@echo "🧪 Running Memory Leak tests..."
+	@$(BUILD_DIR)/test_memory_leaks
+ifeq ($(UNAME_S),Darwin)
+	@echo ""
+	@echo "🔍 Running macOS leaks check..."
+	@leaks --atExit -- $(BUILD_DIR)/test_memory_leaks 2>&1 | tail -5
+endif
 
 $(BUILD_DIR)/test_ipc_common: $(TEST_IPC_COMMON) $(IPC_COMMON) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -DTEST_BUILD -o $@ $< $(IPC_COMMON)
+
+$(BUILD_DIR)/test_memory_leaks: $(TEST_DIR)/test_memory_leaks.c $(IPC_COMMON) platform/virtual_fs.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DTEST_BUILD -o $@ $< $(IPC_COMMON) platform/virtual_fs.c
 
 
 
@@ -217,8 +230,8 @@ test-clean:
 	rm -f $(BUILD_DIR)/test_*
 	@echo "Test binaries cleaned"
 
-test-all: test
-	@echo "✅ All tests completed successfully!"
+test-all: test test-memory
+	@echo "✅ All native tests completed successfully!"
 
 # Application test target (run the actual webview)
 test-app: all

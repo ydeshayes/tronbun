@@ -9,7 +9,13 @@
   "scripts": {
     "build": "bun run build:webview",
     "build:webview": "cd webview && make all",
-    "cli": "bun run cli/index.ts"
+    "cli": "bun run cli/index.ts",
+    "test": "bun run test:native && bun run test:ts",
+    "test:native": "cd webview && make test-all",
+    "test:ts": "bun test tests/",
+    "test:memory": "cd webview && make test-memory && cd .. && bun test tests/memory-leaks.test.ts",
+    "test:memory:native": "cd webview && make test-memory",
+    "test:memory:ts": "bun test tests/memory-leaks.test.ts"
   },
   "files": [
     "cli/*",
@@ -34,7 +40,8 @@
     "bun": "^1.2.19"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "javascript-obfuscator": "^5.1.0"
   },
   "peerDependencies": {
     "typescript": "^5"

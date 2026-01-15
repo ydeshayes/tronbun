@@ -6,6 +6,10 @@
 #include <string.h>
 #include <stddef.h>
 
+#ifdef TRONBUN_CUSTOM_SCHEME
+#include "platform/virtual_fs.h"
+#endif
+
 #ifdef _WIN32
 #include <windows.h>
 #include <process.h>
@@ -297,7 +301,34 @@ void execute_command_dispatch(webview_t w, void* arg) {
         void* window = webview_get_window(cmd->webview);
         platform_window_show(window);
         ipc_write_response(id, "true", NULL);
-        
+
+#ifdef TRONBUN_CUSTOM_SCHEME
+    // Virtual file system commands for custom URL scheme
+    } else if (strcmp(method, "virtual_fs_register") == 0) {
+        // Register a file in the virtual file system
+        char* path = ipc_extract_param_string_alloc(params, "path");
+        char* content = ipc_extract_param_string_alloc(params, "content");
+
+        if (path && content) {
+            int result = virtual_fs_register_file(path, content, strlen(content));
+            if (result == 0) {
+                ipc_write_response(id, "true", NULL);
+            } else {
+                ipc_write_response(id, NULL, "Failed to register file");
+            }
+        } else {
+            ipc_write_response(id, NULL, "Missing path or content parameter");
+        }
+
+        if (path) ipc_free_string(path);
+        if (content) ipc_free_string(content);
+
+    } else if (strcmp(method, "virtual_fs_clear") == 0) {
+        // Clear all files from the virtual file system
+        virtual_fs_clear();
+        ipc_write_response(id, "true", NULL);
+#endif
+
     } else {
         ipc_write_response(id, NULL, "Unknown method");
     }

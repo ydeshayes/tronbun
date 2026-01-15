@@ -9,7 +9,6 @@ export function isCompiledExecutable() {
     // Check if we're running from a compiled executable
     // When compiled, import.meta.url will contain '$bunfs' (Bun's virtual filesystem)
     // and we're not running directly from bun
-    console.log("isCompiledExecutable", import.meta.url.includes('$bunfs'), process.argv, process.argv[0] !== 'bun', process.argv[1]?.endsWith('.exe'));
     return import.meta.url.includes('$bunfs') || process.argv[1]?.endsWith('.exe');
 }
 
@@ -83,12 +82,22 @@ export function resolveWebAssetPath(relativePath: string, callerDirname: string,
  * @returns The resolved path if found, or null if not found
  */
 export function findWebAssetPath(relativePath: string, callerDirname: string, projectRoot?: string): string | null {
+    // In compiled mode with embedded assets, return a placeholder path
+    // The actual content will be loaded from tronbun:// protocol in Window.navigate()
+    if (isCompiledExecutable()) {
+        const hasEmbedded = (globalThis as any).__TRONBUN_EMBEDDED_FILES_COMPRESSED__;
+        if (hasEmbedded) {
+            // Return a placeholder path - navigate() will use custom protocol
+            return `/__embedded__/${relativePath}`;
+        }
+    }
+
     const primaryPath = resolveWebAssetPath(relativePath, callerDirname, projectRoot);
 
     if (existsSync(primaryPath)) {
         return primaryPath;
     }
-    
+
     return null;
 }
 
@@ -144,6 +153,36 @@ export function setupHotReload(onReload: () => void): () => void {
             // Ignore cleanup errors
         }
     };
+}
+
+/**
+ * Resolves the path to an asset file, handling both development and compiled executable scenarios.
+ * In compiled mode, assets are in the Resources/assets folder of the app bundle.
+ *
+ * @param relativePath - The relative path from the assets directory (e.g., "icon.ico")
+ * @returns The resolved absolute path to the asset
+ */
+export function resolveAssetPath(relativePath: string): string {
+    if (isCompiledExecutable()) {
+        // In compiled mode, get the path to Resources/assets
+        const originalCommand = process.argv0;
+
+        if (originalCommand && originalCommand !== 'bun' && originalCommand.includes('/')) {
+            const execPath = resolve(originalCommand);
+
+            // Check if this is a macOS app bundle structure
+            if (execPath.includes('.app/Contents/MacOS/')) {
+                const appBundleRoot = execPath.split('.app/Contents/MacOS/')[0] + '.app';
+                return resolve(appBundleRoot, 'Contents', 'Resources', 'assets', relativePath);
+            } else {
+                // Windows/Linux - assets are next to the executable
+                return resolve(dirname(execPath), 'assets', relativePath);
+            }
+        }
+    }
+
+    // In development mode, use process.cwd()/assets
+    return resolve(process.cwd(), 'assets', relativePath);
 }
 
 export interface WebviewPathOptions {

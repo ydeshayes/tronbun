@@ -56,24 +56,45 @@ export abstract class BaseProcess {
 
         const id = customId || Date.now().toString() + Math.random().toString(36).substring(2);
         const command = { method, id, params };
-    
+
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 this.pendingCommands.delete(id);
                 reject(new Error(`Command '${method}' timed out`));
             }, 5000);
-    
+
             this.pendingCommands.set(id, { resolve, reject, timeout });
-    
+
             const commandJson = JSON.stringify(command) + '\n';
             if (process.env.TRONBUN_DEBUG) {
                 console.debug(`📤 ${this.getProcessName()} Sending:`, commandJson.trim());
             }
-            
+
             if (this.process?.stdin) {
                 this.process.stdin.write(new TextEncoder().encode(commandJson));
             }
         });
+    }
+
+    /**
+     * Send a command without waiting for a response (fire and forget)
+     */
+    sendCommandNoWait(method: string, params: any = {}, customId?: string): void {
+        if (this.isDestroyed) {
+            return;
+        }
+
+        const id = customId || Date.now().toString() + Math.random().toString(36).substring(2);
+        const command = { method, id, params };
+        const commandJson = JSON.stringify(command) + '\n';
+
+        if (process.env.TRONBUN_DEBUG) {
+            console.debug(`📤 ${this.getProcessName()} Sending (no wait):`, commandJson.trim());
+        }
+
+        if (this.process?.stdin) {
+            this.process.stdin.write(new TextEncoder().encode(commandJson));
+        }
     }
 
     /**

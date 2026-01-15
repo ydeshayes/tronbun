@@ -21,6 +21,7 @@ export interface TronbunConfig {
 export interface BuildOptions {
   watch?: boolean;
   dev?: boolean;
+  production?: boolean;  // Bundle all assets inline for production (no external files)
 }
 
 export interface CompileOptions {

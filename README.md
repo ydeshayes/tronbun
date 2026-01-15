@@ -9,12 +9,14 @@ A powerful desktop application framework that combines Bun's performance with na
 ## Features
 
 - 🚀 **Bun-powered backend**: Leverage Bun's speed and modern JavaScript APIs
-- 🌐 **Native webviews**: Use web technologies for UI
+- 🌐 **Native webviews**: Use web technologies for UI (WebKit on macOS, WebView2 on Windows)
 - 🔄 **Seamless IPC**: Easy communication between Bun backend and web frontend
 - 🖱️ **System tray support**: Cross-platform tray icons with custom menus
 - 🛠️ **Built-in CLI**: Comprehensive tooling for development and building
 - ⚡ **Fast builds**: Powered by Bun's built-in bundler
 - 🔧 **TypeScript support**: Full TypeScript support for both backend and frontend
+- 🔒 **Secure asset embedding**: Web assets embedded in executable with obfuscation
+- 💻 **Cross-platform**: Full support for macOS and Windows
 
 ## Quick Start
 
@@ -746,12 +748,79 @@ export class WeatherWindow extends WindowIPC {
 }
 ```
 
+## Platform Support
+
+Tronbun is designed to work seamlessly on both **macOS** and **Windows**:
+
+| Platform | WebView Engine | Tray Support | Status |
+|----------|---------------|--------------|--------|
+| macOS    | WebKit (WKWebView) | NSStatusItem | Full Support |
+| Windows  | WebView2 (Edge Chromium) | Shell_NotifyIcon | Full Support |
+| Linux    | WebKitGTK | GTK StatusIcon | Experimental |
+
+### Native Components
+
+Each platform uses its native webview implementation:
+- **macOS**: Uses `WKURLSchemeHandler` for the custom `tronbun://` protocol
+- **Windows**: Uses `WebResourceRequested` event for the custom `tronbun://` protocol
+
 ## Platform-Specific Compilation
 
-Tronbun supports compilation for different platforms:
+Tronbun supports compilation for different platforms with **embedded web assets** for security and distribution simplicity.
+
+### How Compilation Works
+
+When you run `npx tronbun compile`, Tronbun performs the following steps:
+
+1. **Build without sourcemaps**: Compiles your backend and frontend code without `.map` files (production mode)
+
+2. **Create production bundle**: Inlines all CSS and JavaScript into a single HTML string:
+   - CSS `<link>` tags are replaced with inline `<style>` blocks
+   - JavaScript `<script src="...">` tags are replaced with inline `<script>` blocks
+   - Sourcemap comments are stripped
+
+3. **Obfuscate JavaScript**: Applies heavy obfuscation to frontend code:
+   - Control flow flattening
+   - Dead code injection
+   - String array encoding (base64)
+   - Identifier renaming to hexadecimal
+
+4. **Compress and embed**: Assets are gzip compressed and base64 encoded before embedding
+
+5. **Compile executable**: Uses Bun's compiler to create a single binary
+
+6. **Copy native components**: Copies the webview executable and assets folder to the output
+
+### Security Benefits
+
+- **No external HTML/JS files**: Web content is embedded in the binary, preventing tampering
+- **No source maps in production**: Debug information is excluded from compiled apps
+- **JavaScript obfuscation**: Frontend code is heavily obfuscated, making reverse engineering difficult
+- **Compressed embedding**: Assets are gzip compressed, further obscuring content
+- **Custom URL protocol**: Uses `tronbun://` protocol to serve embedded content securely
+- **Single executable**: Easier to distribute and verify integrity
+
+### Automatic Mode Detection
+
+Your code works seamlessly in both development and production:
+
+```typescript
+import { findWebAssetPath, resolveAssetPath } from "tronbun";
+
+// Works in both dev and compiled mode
+const htmlPath = findWebAssetPath("index.html", __dirname);
+await window.navigate(`file://${htmlPath}`);
+
+// For assets like tray icons
+const iconPath = resolveAssetPath("icon.ico");
+```
+
+- **Development mode**: Loads files from disk (`dist/web/`), enables hot reload
+- **Compiled mode**: Uses embedded HTML content, resolves assets from app bundle
 
 ### Windows Compilation
-Creates a standalone `.exe` executable with web assets in a `dist/` folder.
+
+Creates a standalone `.exe` executable with embedded web content.
 
 ```bash
 npx tronbun compile --platform windows
@@ -759,19 +828,16 @@ npx tronbun compile --platform windows
 
 **Output structure:**
 ```
-my-app/
-├── my-app.exe          # Main executable
-├── webview_main.exe    # Webview component (same directory)
-├── libstdc++-6.dll     # Required runtime library (Windows only)
-├── dist/               # Web assets
-│   ├── index.html
-│   ├── index.js
-│   └── ...
-└── assets/
-    └── icon.ico        # App icon (optional)
+build/
+├── my-app.exe          # Main executable (web content embedded)
+├── webview_main.exe    # Webview component
+├── tray_main.exe       # Tray component
+└── assets/             # Asset files (icons, etc.)
+    └── icon.ico
 ```
 
 ### macOS Compilation
+
 Creates a `.app` bundle with proper macOS app structure.
 
 ```bash
@@ -783,18 +849,28 @@ npx tronbun compile --platform macos
 my-app.app/
 ├── Contents/
 │   ├── MacOS/
-│   │   └── my-app      # Main executable
+│   │   └── my-app          # Main executable (web content embedded)
 │   ├── Resources/
-│   │   ├── dist/       # Web assets
-│   │   ├── webview/    # Webview component
-│   │   └── icon.icns   # App icon
-│   └── Info.plist      # App metadata
+│   │   ├── webview/        # Webview component
+│   │   │   └── build/
+│   │   │       ├── webview_main
+│   │   │       └── tray_main
+│   │   ├── assets/         # Asset files (icons, etc.)
+│   │   │   └── icon.ico
+│   │   └── icon.icns       # App icon
+│   └── Info.plist          # App metadata
 ```
 
+Note: There is **no `dist/` folder** in compiled apps - all web content is embedded in the executable.
+
 ### Cross-Platform Development
+
 - Use `--platform auto` (default) to compile for the current platform
-- Web assets are automatically copied to the appropriate location
-- App icons are supported (`.ico` for Windows, `.icns` for macOS)
+- Web assets are automatically embedded (no external HTML/JS files)
+- Asset files (icons, images) are copied to the appropriate location
+- Use `resolveAssetPath()` for runtime asset path resolution
+- All features work identically on macOS and Windows
+- The `tronbun://` custom protocol handles embedded assets on both platforms
 
 ## Development Tips
 
