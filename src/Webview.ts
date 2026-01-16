@@ -23,13 +23,14 @@ export interface WebViewResponse extends BaseResponse {
     type: 'response' | 'bind_callback' | 'ipc:call';
     req?: any;
     seq?: string;
+    viewId?: string;  // For routing IPC to child views
 }
 
 export class Webview extends BaseProcess {
     private bindCallbacks = new Map<string, (data: any) => void>();
 
-    public onIPC = (channel: string, data: any) => {
-        console.log('onIPC', channel, data);
+    public onIPC = (channel: string, data: any, viewId?: string) => {
+        console.log('onIPC', channel, data, 'viewId:', viewId);
     };
 
     protected getProcessName(): string {
@@ -39,13 +40,15 @@ export class Webview extends BaseProcess {
     protected async handleSpecificResponse(response: WebViewResponse): Promise<void> {
         if (response.type === 'ipc:call' && response.req) {
             if (process.env.TRONBUN_DEBUG) {
-                console.log('ipc:call', response.req);
+                console.log('ipc:call', response.req, 'viewId:', response.viewId);
             }
 
             const payload = JSON.parse(response.req[1]);
-            const result = await this.onIPC(payload.channel, payload.data);
+            // Extract viewId from payload if present (child views include it)
+            const viewId = payload.viewId || response.viewId;
+            const result = await this.onIPC(payload.channel, payload.data, viewId);
             // Use sendCommandNoWait since ipc:response doesn't expect a reply
-            this.sendCommandNoWait('ipc:response', { id: response.seq, result: result ?? "" }, response.seq);
+            this.sendCommandNoWait('ipc:response', { id: response.seq, result: result ?? "", viewId }, response.seq);
         }
     }
 

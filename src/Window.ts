@@ -1,15 +1,19 @@
 import { Webview } from "./Webview";
 import type { WebViewOptions } from "./Webview";
 import { setupHotReload, isCompiledExecutable } from "./utils";
+import { ChildView, type ChildViewOptions, type ChildViewBounds } from "./ChildView";
 
 export interface WindowOptions extends WebViewOptions {}
 
 export type IPCHandler = (data: any) => any | Promise<any>;
 
+export { ChildView, type ChildViewOptions, type ChildViewBounds };
+
 export class Window {
     public readonly id: string;
     private webview: Webview;
     private ipcHandlers = new Map<string, IPCHandler>();
+    private childViews = new Map<string, ChildView>();
     private hotReloadCleanup: (() => void) | null = null;
     private currentUrl: string | null = null;
     
@@ -20,10 +24,22 @@ export class Window {
         this.webview.onIPC = this.onIPC.bind(this);
     }
 
-    private async onIPC(channel: string, data: any) {
+    private async onIPC(channel: string, data: any, viewId?: string) {
         if (process.env.TRONBUN_DEBUG) {
-            console.log('onIPC', channel, data); // Don't log the entire handler map
+            console.log('onIPC', channel, data, 'viewId:', viewId);
         }
+
+        // Route to child view if viewId is specified and not 'main'
+        if (viewId && viewId !== 'main') {
+            const childView = this.childViews.get(viewId);
+            if (childView) {
+                return await childView.handleIPC(channel, data);
+            }
+            console.warn(`Unknown child viewId: ${viewId}`);
+            return undefined;
+        }
+
+        // Handle in main window
         const handler = this.ipcHandlers.get(channel);
         if (handler) {
             return await handler(data);
@@ -109,9 +125,91 @@ export class Window {
     }
 
     async close(): Promise<void> {
+        // Destroy all child views first
+        for (const childView of this.childViews.values()) {
+            try {
+                childView.clearIPCHandlers();
+                await this.webview.sendCommand('destroy_child_view', { viewId: childView.id });
+            } catch (e) {
+                // Ignore errors during cleanup
+            }
+        }
+        this.childViews.clear();
+
         this.stopHotReload();
         this.ipcHandlers.clear();
         await this.webview.close();
+    }
+
+    // =========================================================================
+    // Child View Management
+    // =========================================================================
+
+    /**
+     * Create an embedded child view within this window
+     * @param options Child view options including bounds and optional initial content
+     * @returns The created ChildView instance
+     */
+    async createChildView(options: ChildViewOptions): Promise<ChildView> {
+        // Generate ID if not provided
+        const id = options.id || `child_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+        // Create the native child view
+        await this.webview.sendCommand('create_child_view', {
+            id,
+            x: options.bounds.x,
+            y: options.bounds.y,
+            width: options.bounds.width,
+            height: options.bounds.height
+        });
+
+        // Create TypeScript wrapper
+        const childView = new ChildView(this.webview, id, options.bounds);
+        this.childViews.set(id, childView);
+
+        // Initialize with content if provided
+        if (options.html) {
+            await childView.setHtml(options.html);
+        } else if (options.url) {
+            await childView.navigate(options.url);
+        }
+
+        // Set visibility if specified
+        if (options.visible === false) {
+            await childView.setVisible(false);
+        }
+
+        return childView;
+    }
+
+    /**
+     * Destroy a child view
+     * @param childViewOrId The ChildView instance or its ID
+     */
+    async destroyChildView(childViewOrId: ChildView | string): Promise<void> {
+        const id = typeof childViewOrId === 'string' ? childViewOrId : childViewOrId.id;
+        const childView = this.childViews.get(id);
+
+        if (childView) {
+            childView.clearIPCHandlers();
+            await this.webview.sendCommand('destroy_child_view', { viewId: id });
+            this.childViews.delete(id);
+        }
+    }
+
+    /**
+     * Get a child view by ID
+     * @param id The child view ID
+     */
+    getChildView(id: string): ChildView | undefined {
+        return this.childViews.get(id);
+    }
+
+    /**
+     * Get all child views
+     */
+    getChildViews(): ChildView[] {
+        return Array.from(this.childViews.values());
     }
 
     private setupHotReloadForUrl(): void {

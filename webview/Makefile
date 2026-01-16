@@ -68,6 +68,7 @@ ifeq ($(UNAME_S),Darwin)
     LDFLAGS += -framework Cocoa -framework WebKit -framework UserNotifications
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_macos.mm
+    CHILD_VIEW_IMPL = platform/platform_child_view_macos.mm
     TRAY_PLATFORM_IMPL = platform/platform_tray_macos.mm
     VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_macos.mm
     TARGET_EXT =
@@ -80,6 +81,7 @@ ifeq ($(OS),Windows_NT)
     LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32
     WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_win.c
+    CHILD_VIEW_IMPL = platform/platform_child_view_win.cpp
     TRAY_PLATFORM_IMPL = platform/platform_tray_win.c
     VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_win.cpp
     TARGET_EXT = _win.exe
@@ -110,8 +112,8 @@ full-static: $(FULL_STATIC_TARGETS)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
+$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 
 $(BUILD_DIR)/tray_main$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
 ifeq ($(UNAME_S),Darwin)
@@ -120,13 +122,13 @@ else
 	$(CC) $(CFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
 endif
 
-$(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
+$(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
-	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(STATIC_LDFLAGS)
+	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(STATIC_LDFLAGS)
 else
 	@echo "Static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 endif
 
 $(BUILD_DIR)/tray_main_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
@@ -142,13 +144,13 @@ else
 endif
 endif
 
-$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
+$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
-	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(FULL_STATIC_LDFLAGS)
+	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(FULL_STATIC_LDFLAGS)
 else
 	@echo "Full static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 endif
 
 $(BUILD_DIR)/tray_main_full_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)

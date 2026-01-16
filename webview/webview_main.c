@@ -1,5 +1,6 @@
 #include "../vendors/webview/core/include/webview/webview.h"
 #include "platform/platform_window.h"
+#include "platform/platform_child_view.h"
 #include "common/ipc_common.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,74 @@
 #ifdef TRONBUN_CUSTOM_SCHEME
 #include "platform/virtual_fs.h"
 #endif
+
+// ============================================================================
+// Child View Registry
+// ============================================================================
+
+#define MAX_CHILD_VIEWS 64
+#define MAIN_VIEW_ID "main"
+
+typedef struct {
+    char id[256];
+    void* platform_view;  // Platform-specific view handle
+    int x, y, width, height;
+    int visible;
+} child_view_entry_t;
+
+static child_view_entry_t g_child_views[MAX_CHILD_VIEWS];
+static int g_child_view_count = 0;
+static void* g_main_window = NULL;  // Cached main window handle
+
+// Find child view by ID
+static child_view_entry_t* find_child_view(const char* id) {
+    for (int i = 0; i < g_child_view_count; i++) {
+        if (strcmp(g_child_views[i].id, id) == 0) {
+            return &g_child_views[i];
+        }
+    }
+    return NULL;
+}
+
+// Add a child view to the registry
+static child_view_entry_t* add_child_view(const char* id, void* platform_view,
+                                          int x, int y, int width, int height) {
+    if (g_child_view_count >= MAX_CHILD_VIEWS) {
+        fprintf(stderr, "Maximum child views reached (%d)\n", MAX_CHILD_VIEWS);
+        return NULL;
+    }
+
+    child_view_entry_t* entry = &g_child_views[g_child_view_count++];
+    strncpy(entry->id, id, sizeof(entry->id) - 1);
+    entry->id[sizeof(entry->id) - 1] = '\0';
+    entry->platform_view = platform_view;
+    entry->x = x;
+    entry->y = y;
+    entry->width = width;
+    entry->height = height;
+    entry->visible = 1;
+
+    return entry;
+}
+
+// Remove a child view from the registry
+static void remove_child_view(const char* id) {
+    for (int i = 0; i < g_child_view_count; i++) {
+        if (strcmp(g_child_views[i].id, id) == 0) {
+            // Shift remaining entries
+            for (int j = i; j < g_child_view_count - 1; j++) {
+                g_child_views[j] = g_child_views[j + 1];
+            }
+            g_child_view_count--;
+            return;
+        }
+    }
+}
+
+// Check if viewId refers to main view
+static int is_main_view(const char* view_id) {
+    return view_id == NULL || view_id[0] == '\0' || strcmp(view_id, MAIN_VIEW_ID) == 0;
+}
 
 #ifdef _WIN32
 #include <windows.h>
@@ -302,6 +371,203 @@ void execute_command_dispatch(webview_t w, void* arg) {
         platform_window_show(window);
         ipc_write_response(id, "true", NULL);
 
+    // ========================================================================
+    // Child View Commands
+    // ========================================================================
+
+    } else if (strcmp(method, "create_child_view") == 0) {
+        // Create a new child view embedded in the main window
+        char child_id[256] = "";
+        int x = 0, y = 0, width = 400, height = 300;
+        int debug = 1;
+
+        ipc_extract_param_string(params, "id", child_id, sizeof(child_id));
+        ipc_extract_param_int(params, "x", &x);
+        ipc_extract_param_int(params, "y", &y);
+        ipc_extract_param_int(params, "width", &width);
+        ipc_extract_param_int(params, "height", &height);
+        ipc_extract_param_int(params, "debug", &debug);
+
+        if (child_id[0] == '\0') {
+            ipc_write_response(id, NULL, "Missing 'id' parameter");
+        } else if (find_child_view(child_id) != NULL) {
+            ipc_write_response(id, NULL, "Child view with this ID already exists");
+        } else {
+            // Cache main window handle if not already done
+            if (g_main_window == NULL) {
+                g_main_window = webview_get_window(cmd->webview);
+            }
+
+            child_view_bounds_t bounds = { x, y, width, height };
+            void* platform_view = platform_create_child_view(g_main_window, debug, bounds);
+
+            if (platform_view) {
+                add_child_view(child_id, platform_view, x, y, width, height);
+                platform_init_child_ipc(platform_view, child_id);
+                ipc_write_response(id, "true", NULL);
+                fprintf(stderr, "Created child view: %s\n", child_id);
+            } else {
+                ipc_write_response(id, NULL, "Failed to create child view");
+            }
+        }
+
+    } else if (strcmp(method, "destroy_child_view") == 0) {
+        // Destroy a child view
+        char view_id[256] = "";
+        ipc_extract_param_string(params, "viewId", view_id, sizeof(view_id));
+
+        child_view_entry_t* entry = find_child_view(view_id);
+        if (entry) {
+            platform_destroy_child_view(entry->platform_view);
+            remove_child_view(view_id);
+            ipc_write_response(id, "true", NULL);
+            fprintf(stderr, "Destroyed child view: %s\n", view_id);
+        } else {
+            ipc_write_response(id, NULL, "Child view not found");
+        }
+
+    } else if (strcmp(method, "set_child_bounds") == 0) {
+        // Update child view bounds
+        char view_id[256] = "";
+        int x = 0, y = 0, width = 400, height = 300;
+
+        ipc_extract_param_string(params, "viewId", view_id, sizeof(view_id));
+        ipc_extract_param_int(params, "x", &x);
+        ipc_extract_param_int(params, "y", &y);
+        ipc_extract_param_int(params, "width", &width);
+        ipc_extract_param_int(params, "height", &height);
+
+        child_view_entry_t* entry = find_child_view(view_id);
+        if (entry) {
+            entry->x = x;
+            entry->y = y;
+            entry->width = width;
+            entry->height = height;
+
+            child_view_bounds_t bounds = { x, y, width, height };
+            platform_set_child_bounds(entry->platform_view, bounds);
+            ipc_write_response(id, "true", NULL);
+        } else {
+            ipc_write_response(id, NULL, "Child view not found");
+        }
+
+    } else if (strcmp(method, "set_child_visible") == 0) {
+        // Set child view visibility
+        char view_id[256] = "";
+        int visible = 1;
+
+        ipc_extract_param_string(params, "viewId", view_id, sizeof(view_id));
+        ipc_extract_param_int(params, "visible", &visible);
+
+        child_view_entry_t* entry = find_child_view(view_id);
+        if (entry) {
+            entry->visible = visible;
+            platform_set_child_visible(entry->platform_view, visible);
+            ipc_write_response(id, "true", NULL);
+        } else {
+            ipc_write_response(id, NULL, "Child view not found");
+        }
+
+    } else if (strcmp(method, "bring_child_to_front") == 0) {
+        // Bring child view to front
+        char view_id[256] = "";
+        ipc_extract_param_string(params, "viewId", view_id, sizeof(view_id));
+
+        child_view_entry_t* entry = find_child_view(view_id);
+        if (entry) {
+            if (g_main_window == NULL) {
+                g_main_window = webview_get_window(cmd->webview);
+            }
+            platform_bring_child_to_front(g_main_window, entry->platform_view);
+            ipc_write_response(id, "true", NULL);
+        } else {
+            ipc_write_response(id, NULL, "Child view not found");
+        }
+
+    } else if (strcmp(method, "send_child_to_back") == 0) {
+        // Send child view to back
+        char view_id[256] = "";
+        ipc_extract_param_string(params, "viewId", view_id, sizeof(view_id));
+
+        child_view_entry_t* entry = find_child_view(view_id);
+        if (entry) {
+            if (g_main_window == NULL) {
+                g_main_window = webview_get_window(cmd->webview);
+            }
+            platform_send_child_to_back(g_main_window, entry->platform_view);
+            ipc_write_response(id, "true", NULL);
+        } else {
+            ipc_write_response(id, NULL, "Child view not found");
+        }
+
+    } else if (strcmp(method, "child_navigate") == 0) {
+        // Navigate child view to URL
+        char view_id[256] = "";
+        ipc_extract_param_string(params, "viewId", view_id, sizeof(view_id));
+        char* url = ipc_extract_param_string_alloc(params, "url");
+
+        child_view_entry_t* entry = find_child_view(view_id);
+        if (entry && url) {
+            platform_child_navigate(entry->platform_view, url);
+            ipc_write_response(id, "true", NULL);
+        } else if (!entry) {
+            ipc_write_response(id, NULL, "Child view not found");
+        } else {
+            ipc_write_response(id, NULL, "Missing URL parameter");
+        }
+        if (url) ipc_free_string(url);
+
+    } else if (strcmp(method, "child_set_html") == 0) {
+        // Set HTML content in child view
+        char view_id[256] = "";
+        ipc_extract_param_string(params, "viewId", view_id, sizeof(view_id));
+        char* html = ipc_extract_param_string_alloc(params, "html");
+
+        child_view_entry_t* entry = find_child_view(view_id);
+        if (entry && html) {
+            platform_child_set_html(entry->platform_view, html);
+            ipc_write_response(id, "true", NULL);
+        } else if (!entry) {
+            ipc_write_response(id, NULL, "Child view not found");
+        } else {
+            ipc_write_response(id, NULL, "Missing HTML parameter");
+        }
+        if (html) ipc_free_string(html);
+
+    } else if (strcmp(method, "child_eval") == 0) {
+        // Execute JavaScript in child view
+        char view_id[256] = "";
+        ipc_extract_param_string(params, "viewId", view_id, sizeof(view_id));
+        char* js = ipc_extract_param_string_alloc(params, "js");
+
+        child_view_entry_t* entry = find_child_view(view_id);
+        if (entry && js) {
+            platform_child_eval(entry->platform_view, js);
+            ipc_write_response(id, "true", NULL);
+        } else if (!entry) {
+            ipc_write_response(id, NULL, "Child view not found");
+        } else {
+            ipc_write_response(id, NULL, "Missing JS parameter");
+        }
+        if (js) ipc_free_string(js);
+
+    } else if (strcmp(method, "child_init") == 0) {
+        // Add initialization script to child view
+        char view_id[256] = "";
+        ipc_extract_param_string(params, "viewId", view_id, sizeof(view_id));
+        char* js = ipc_extract_param_string_alloc(params, "js");
+
+        child_view_entry_t* entry = find_child_view(view_id);
+        if (entry && js) {
+            platform_child_init(entry->platform_view, js);
+            ipc_write_response(id, "true", NULL);
+        } else if (!entry) {
+            ipc_write_response(id, NULL, "Child view not found");
+        } else {
+            ipc_write_response(id, NULL, "Missing JS parameter");
+        }
+        if (js) ipc_free_string(js);
+
 #ifdef TRONBUN_CUSTOM_SCHEME
     // Virtual file system commands for custom URL scheme
     } else if (strcmp(method, "virtual_fs_register") == 0) {
@@ -310,8 +576,8 @@ void execute_command_dispatch(webview_t w, void* arg) {
         char* content = ipc_extract_param_string_alloc(params, "content");
 
         if (path && content) {
-            int result = virtual_fs_register_file(path, content, strlen(content));
-            if (result == 0) {
+            int vfs_result = virtual_fs_register_file(path, content, strlen(content));
+            if (vfs_result == 0) {
                 ipc_write_response(id, "true", NULL);
             } else {
                 ipc_write_response(id, NULL, "Failed to register file");
