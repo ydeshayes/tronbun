@@ -88,9 +88,14 @@ export class CompileCommand {
     }
 
     // Collect all web files for embedding (supports lazy loading)
-    // Enable obfuscation to make JS unreadable even if decompressed
-    console.log("🔒 Obfuscating JavaScript for production...");
-    const embeddedFiles = await BuildCommand.collectEmbeddedFiles(config, projectRoot, true);
+    // Obfuscation is configured via build.obfuscation in tronbun.config.json
+    const obfuscationEnabled = config.build.obfuscation?.enabled ?? false;
+    if (obfuscationEnabled) {
+      console.log("🔒 Obfuscating JavaScript for production...");
+    } else {
+      console.log("📦 Collecting JavaScript for production...");
+    }
+    const embeddedFiles = await BuildCommand.collectEmbeddedFiles(config, projectRoot, config.build.obfuscation);
     if (!embeddedFiles) {
       console.error("❌ Failed to collect embedded files");
       return false;

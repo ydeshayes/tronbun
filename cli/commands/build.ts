@@ -1,7 +1,7 @@
 import { resolve, basename, dirname } from "path";
 import { existsSync, readdirSync } from "fs";
 import { $ } from "bun";
-import type { TronbunConfig, BuildOptions } from "../types.js";
+import type { TronbunConfig, BuildOptions, ObfuscationOptions } from "../types.js";
 import { Utils } from "../utils.js";
 import { GenerateTypesCommand } from "./generate-types.js";
 import JavaScriptObfuscator from "javascript-obfuscator";
@@ -143,25 +143,29 @@ export class BuildCommand {
 
   /**
    * Obfuscates JavaScript code to make it unreadable.
-   * Uses javascript-obfuscator with high obfuscation settings.
+   * Uses javascript-obfuscator with configurable settings.
    */
-  private static obfuscateJs(code: string): string {
+  private static obfuscateJs(code: string, options: ObfuscationOptions = {}): string {
     const result = JavaScriptObfuscator.obfuscate(code, {
-      // High obfuscation - balance between security and performance
-      compact: true,
-      controlFlowFlattening: true,
-      controlFlowFlatteningThreshold: 0.75,
-      deadCodeInjection: true,
-      deadCodeInjectionThreshold: 0.4,
-      identifierNamesGenerator: 'hexadecimal',
-      renameGlobals: false, // Keep false to not break window.* APIs
+      // Use config options with sensible defaults
+      compact: options.compact ?? true,
+      controlFlowFlattening: options.controlFlowFlattening ?? false,
+      controlFlowFlatteningThreshold: options.controlFlowFlatteningThreshold ?? 0.75,
+      deadCodeInjection: options.deadCodeInjection ?? false,
+      deadCodeInjectionThreshold: options.deadCodeInjectionThreshold ?? 0.4,
+      identifierNamesGenerator: options.identifierNamesGenerator ?? 'hexadecimal',
+      renameGlobals: options.renameGlobals ?? false, // Keep false to not break window.* APIs
+      selfDefending: options.selfDefending ?? false, // Keep false to avoid React issues
+      splitStrings: options.splitStrings ?? false,
+      splitStringsChunkLength: options.splitStringsChunkLength ?? 10,
+      stringArray: options.stringArray ?? true,
+      stringArrayEncoding: options.stringArrayEncoding ?? ['base64'],
+      stringArrayThreshold: options.stringArrayThreshold ?? 0.75,
+      transformObjectKeys: options.transformObjectKeys ?? false,
+      unicodeEscapeSequence: options.unicodeEscapeSequence ?? false, // Keep false for performance
+      // Additional options that are always safe to use
       rotateStringArray: true,
-      selfDefending: true,
       shuffleStringArray: true,
-      splitStrings: true,
-      splitStringsChunkLength: 10,
-      stringArray: true,
-      stringArrayEncoding: ['base64'],
       stringArrayIndexShift: true,
       stringArrayRotate: true,
       stringArrayShuffle: true,
@@ -169,9 +173,6 @@ export class BuildCommand {
       stringArrayWrappersChainedCalls: true,
       stringArrayWrappersParametersMaxCount: 4,
       stringArrayWrappersType: 'function',
-      stringArrayThreshold: 0.75,
-      transformObjectKeys: true,
-      unicodeEscapeSequence: false, // Keep false for performance
     });
     return result.getObfuscatedCode();
   }
@@ -181,13 +182,13 @@ export class BuildCommand {
    * This preserves the file structure for lazy loading and code splitting support.
    * Used by the compile command to embed web content into the executable.
    *
-   * @param obfuscate If true, JavaScript files will be obfuscated
+   * @param obfuscationOptions If provided with enabled: true, JavaScript files will be obfuscated
    * @returns Map of relative paths to file contents (excluding .map files in production)
    */
   static async collectEmbeddedFiles(
     config: TronbunConfig,
     projectRoot: string,
-    obfuscate: boolean = false
+    obfuscationOptions?: ObfuscationOptions
   ): Promise<Record<string, string> | null> {
     console.log("📦 Collecting web assets for embedding...");
 
@@ -233,11 +234,11 @@ export class BuildCommand {
                 .replace(/\/\*# sourceMappingURL=.+\.map \*\//g, '');
             }
 
-            // Obfuscate JavaScript files if requested
-            if (obfuscate && entry.name.endsWith('.js')) {
+            // Obfuscate JavaScript files if enabled in options
+            if (obfuscationOptions?.enabled && entry.name.endsWith('.js')) {
               console.log(`  🔒 Obfuscating: ${relativePath}`);
               try {
-                content = this.obfuscateJs(content);
+                content = this.obfuscateJs(content, obfuscationOptions);
               } catch (err) {
                 console.warn(`  ⚠️ Obfuscation failed for ${relativePath}, using original`);
               }

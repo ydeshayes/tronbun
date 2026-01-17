@@ -1,4 +1,4 @@
-#include "../vendors/webview/core/include/webview/webview.h"
+#include "webview/webview.h"
 #include "platform/platform_window.h"
 #include "platform/platform_child_view.h"
 #include "common/ipc_common.h"

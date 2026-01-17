@@ -14,6 +14,16 @@
   "build": {
     "target": "bun",
     "minify": false,
-    "sourcemap": true
+    "sourcemap": true,
+    "obfuscation": {
+      "enabled": false,
+      "compact": true,
+      "controlFlowFlattening": false,
+      "deadCodeInjection": false,
+      "stringArray": true,
+      "stringArrayEncoding": ["base64"],
+      "splitStrings": false,
+      "selfDefending": false
+    }
   }
 }

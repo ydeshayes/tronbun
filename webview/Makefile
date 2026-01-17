@@ -34,8 +34,8 @@ ifeq ($(OS),Windows_NT)
     endif
 endif
 
-CFLAGS = -std=c99 -Wall -Wextra -I../vendors/webview/core/include -I../vendors/cJSON -I.
-CXXFLAGS = -std=c++11 -Wall -Wextra -I../vendors/webview/core/include -I../vendors/cJSON -I.
+CFLAGS = -std=c99 -Wall -Wextra -Iwebview_adapter/include -I../vendors/cJSON -I.
+CXXFLAGS = -std=c++11 -Wall -Wextra -Iwebview_adapter/include -I../vendors/cJSON -I.
 
 # Build directory
 BUILD_DIR = build
@@ -55,7 +55,7 @@ ifeq ($(UNAME_S),Linux)
     # Linux with GTK/WebKitGTK
     CFLAGS += $(shell pkg-config --cflags gtk+-3.0 webkit2gtk-4.0 libnotify)
     LDFLAGS += $(shell pkg-config --libs gtk+-3.0 webkit2gtk-4.0 libnotify) -lpthread
-    WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
+    WEBVIEW_IMPL = webview_adapter/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_linux.c
     TRAY_PLATFORM_IMPL = platform/platform_tray_linux.c
     TARGET_EXT = 
@@ -66,7 +66,7 @@ ifeq ($(UNAME_S),Darwin)
     CFLAGS += -DWEBVIEW_COCOA=1 -DTRONBUN_CUSTOM_SCHEME=1
     CXXFLAGS += -DTRONBUN_CUSTOM_SCHEME=1
     LDFLAGS += -framework Cocoa -framework WebKit -framework UserNotifications
-    WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
+    WEBVIEW_IMPL = webview_adapter/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_macos.mm
     CHILD_VIEW_IMPL = platform/platform_child_view_macos.mm
     TRAY_PLATFORM_IMPL = platform/platform_tray_macos.mm
@@ -79,7 +79,7 @@ ifeq ($(OS),Windows_NT)
     CFLAGS += -DWEBVIEW_EDGE=1 -DUNICODE -D_UNICODE -DTRONBUN_CUSTOM_SCHEME=1
     CXXFLAGS += -DUNICODE -D_UNICODE -DTRONBUN_CUSTOM_SCHEME=1
     LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32
-    WEBVIEW_IMPL = ../vendors/webview/core/src/webview.cc
+    WEBVIEW_IMPL = webview_adapter/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_win.c
     CHILD_VIEW_IMPL = platform/platform_child_view_win.cpp
     TRAY_PLATFORM_IMPL = platform/platform_tray_win.c
