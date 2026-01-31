@@ -1,5 +1,61 @@
 #import <Cocoa/Cocoa.h>
 #include "platform_window.h"
+#include <objc/runtime.h>
+
+// ============================================================================
+// Window Resize Observer
+// ============================================================================
+
+// Key for associated object to store resize observer
+static const char kResizeObserverKey = '\0';
+
+@interface TronbunResizeObserver : NSObject {
+    NSWindow *_observedWindow;
+}
+@property (nonatomic, assign) platform_window_resize_callback_t callback;
+@property (nonatomic, assign) void *userData;
+@end
+
+@implementation TronbunResizeObserver
+
+- (instancetype)initWithWindow:(NSWindow *)window
+                      callback:(platform_window_resize_callback_t)callback
+                      userData:(void *)userData {
+    self = [super init];
+    if (self) {
+        _callback = callback;
+        _userData = userData;
+        _observedWindow = window;
+
+        // Register for window resize notifications
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(windowDidResize:)
+                                                     name:NSWindowDidResizeNotification
+                                                   object:window];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [super dealloc];
+}
+
+- (void)windowDidResize:(NSNotification *)notification {
+    (void)notification;
+    if (_callback && _observedWindow) {
+        NSRect contentRect = [_observedWindow contentRectForFrameRect:[_observedWindow frame]];
+        int width = (int)contentRect.size.width;
+        int height = (int)contentRect.size.height;
+        _callback(width, height, _userData);
+    }
+}
+
+@end
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 // Helper function to recursively find WKWebView instances
 NSArray<NSView*>* findWKWebViewsInView(NSView *view) {
@@ -194,5 +250,36 @@ void platform_window_show(void *native_window) {
     NSWindow *win = (__bridge NSWindow *)native_window;
     if (win) {
         [win makeKeyAndOrderFront:nil];
+    }
+}
+
+void platform_window_register_resize_callback(void *native_window,
+                                              platform_window_resize_callback_t callback,
+                                              void *user_data) {
+    NSWindow *win = (__bridge NSWindow *)native_window;
+    if (win && callback) {
+        // Create the resize observer
+        TronbunResizeObserver *observer = [[TronbunResizeObserver alloc] initWithWindow:win
+                                                                               callback:callback
+                                                                               userData:user_data];
+
+        // Associate the observer with the window so it stays alive
+        objc_setAssociatedObject(win, &kResizeObserverKey, observer,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        fprintf(stderr, "Registered resize callback for window %p\n", native_window);
+    }
+}
+
+void platform_window_get_size(void *native_window, int *width, int *height) {
+    NSWindow *win = (__bridge NSWindow *)native_window;
+    if (win) {
+        NSRect frame = [win frame];
+        NSRect contentRect = [win contentRectForFrameRect:frame];
+        if (width) *width = (int)contentRect.size.width;
+        if (height) *height = (int)contentRect.size.height;
+    } else {
+        if (width) *width = 0;
+        if (height) *height = 0;
     }
 }

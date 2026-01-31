@@ -3,20 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Platform Window Controls</title>
+    <title>Kitchen Sink Demo</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; background: transparent}
+        body { font-family: Arial, sans-serif; padding: 20px; background: transparent; max-width: 1000px; margin: 0 auto; }
         .controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
-        button { padding: 10px 20px; border: none; border-radius: 5px; background: #007acc; color: white; cursor: pointer; }
-        button:hover { background: #005a9e; }
-        .section { margin: 20px 0; padding: 15px; background: rgba(255,255,255,0.8); border-radius: 8px; }
+        button { padding: 10px 20px; border: none; border-radius: 5px; background: #007acc; color: white; cursor: pointer; transition: all 0.2s; }
+        button:hover { background: #005a9e; transform: translateY(-1px); }
+        button:active { transform: translateY(0); }
+        .btn-success { background: #28a745; }
+        .btn-success:hover { background: #218838; }
+        .btn-warning { background: #ffc107; color: #333; }
+        .btn-warning:hover { background: #e0a800; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-info { background: #17a2b8; }
+        .btn-info:hover { background: #138496; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #5a6268; }
+        .section { margin: 20px 0; padding: 15px; background: rgba(255,255,255,0.9); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         h1 { color: #333; }
-        h2 { color: #666; }
+        h2 { color: #444; margin-top: 0; border-bottom: 2px solid #007acc; padding-bottom: 10px; }
+        .result-box { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 10px; margin-top: 10px; font-family: monospace; font-size: 13px; max-height: 150px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+        .result-box.success { border-color: #28a745; background: #d4edda; }
+        .result-box.cancelled { border-color: #ffc107; background: #fff3cd; }
+        .result-box.error { border-color: #dc3545; background: #f8d7da; }
+        .log-box { background: #1e1e1e; color: #00ff00; border-radius: 5px; padding: 10px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto; margin-top: 10px; }
+        .log-box .timestamp { color: #888; }
+        .log-box .menu { color: #9b59b6; }
+        .log-box .dialog { color: #3498db; }
+        .log-box .success { color: #27ae60; }
+        .tabs { display: flex; gap: 5px; margin-bottom: 15px; }
+        .tab { padding: 8px 16px; border: none; border-radius: 5px 5px 0 0; background: #e9ecef; cursor: pointer; }
+        .tab.active { background: #007acc; color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
     </style>
 </head>
 <body>
-    <h1>🪟 Platform Window Controls Demo</h1>
-    <p>This demo shows cross-platform window functionality including transparency, blur effects, and window decorations.</p>
+    <h1>🍳 Kitchen Sink Demo</h1>
+    <p>A comprehensive demo of Tronbun features: window controls, native dialogs, application menus, and system tray.</p>
     <div class='section'>
         <h2>🎨 Visual Effects</h2>
         <div class='controls'>
@@ -61,6 +86,58 @@
     <div class='section'>
         <h2>ℹ️ Platform Info</h2>
         <p id='platform-info'>Loading platform information...</p>
+    </div>
+
+    <!-- Native Dialogs Section -->
+    <div class='section'>
+        <h2>📂 Native Dialogs</h2>
+        <p>Test native file dialogs and message boxes.</p>
+
+        <h3>File Dialogs</h3>
+        <div class='controls'>
+            <button class='btn-success' onclick='openFile()'>Open File</button>
+            <button class='btn-success' onclick='openMultipleFiles()'>Open Multiple</button>
+            <button class='btn-success' onclick='openFileFiltered()'>Open with Filter</button>
+            <button class='btn-info' onclick='saveFile()'>Save File</button>
+            <button class='btn-secondary' onclick='openFolder()'>Open Folder</button>
+        </div>
+        <div id='fileResult' class='result-box'>Click a button to test file dialogs...</div>
+
+        <h3>Message Boxes</h3>
+        <div class='controls'>
+            <button class='btn-info' onclick='showInfo()'>Info</button>
+            <button class='btn-warning' onclick='showWarning()'>Warning</button>
+            <button class='btn-danger' onclick='showError()'>Error</button>
+            <button onclick='showConfirm()'>Confirm</button>
+        </div>
+        <div class='controls'>
+            <button onclick='showOkCancel()'>OK/Cancel</button>
+            <button onclick='showYesNo()'>Yes/No</button>
+            <button onclick='showYesNoCancel()'>Yes/No/Cancel</button>
+        </div>
+        <div id='msgResult' class='result-box'>Click a button to test message boxes...</div>
+    </div>
+
+    <!-- Application Menu Section -->
+    <div class='section'>
+        <h2>📋 Application Menu</h2>
+        <p>The application menu is automatically set up. Use the menu bar at the top of the window to test menu functionality.</p>
+
+        <h3>Menu Controls</h3>
+        <div class='controls'>
+            <button onclick='resetCustomMenu()'>Reset Custom Menu</button>
+            <button class='btn-secondary' onclick='setDefaultMenu()'>Set Default Menu</button>
+            <button class='btn-danger' onclick='removeMenu()'>Remove Menu</button>
+        </div>
+
+        <h3>Dynamic Updates</h3>
+        <div class='controls'>
+            <button class='btn-info' onclick='toggleSaveEnabled()'>Toggle "Save" Enabled</button>
+            <button class='btn-info' onclick='toggleSidebarChecked()'>Toggle "Sidebar" Checked</button>
+        </div>
+
+        <h3>Event Log</h3>
+        <div id='menuLog' class='log-box'>Menu events will appear here...</div>
     </div>
 
   <script src="index.js"></script>

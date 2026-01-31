@@ -1,0 +1,24 @@
+{
+  "name": "cowork",
+  "version": "1.0.0",
+  "description": "A Cowork clone - AI-powered file management assistant using OpenRouter",
+  "main": "src/main.ts",
+  "scripts": {
+    "build": "tronbun build",
+    "dev": "tronbun dev",
+    "start": "tronbun run",
+    "generate-types": "tronbun generate-types",
+    "compile": "tronbun compile"
+  },
+  "dependencies": {
+    "tronbun": "../..",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  }
+}

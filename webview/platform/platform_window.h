@@ -106,6 +106,30 @@ void platform_window_hide(void *native_window);
  */
 void platform_window_show(void *native_window);
 
+/**
+ * Callback function type for window resize events
+ * @param width New window width
+ * @param height New window height
+ * @param user_data User-provided context data
+ */
+typedef void (*platform_window_resize_callback_t)(int width, int height, void *user_data);
+
+/**
+ * Register a callback for window resize events
+ * @param native_window Platform-specific window handle
+ * @param callback Function to call when window is resized
+ * @param user_data User-provided context data passed to callback
+ */
+void platform_window_register_resize_callback(void *native_window, platform_window_resize_callback_t callback, void *user_data);
+
+/**
+ * Get window size
+ * @param native_window Platform-specific window handle
+ * @param width Pointer to receive width
+ * @param height Pointer to receive height
+ */
+void platform_window_get_size(void *native_window, int *width, int *height);
+
 #ifdef __cplusplus
 }
 #endif

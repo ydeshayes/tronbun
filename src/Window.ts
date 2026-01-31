@@ -1,13 +1,324 @@
 import { Webview } from "./Webview";
 import type { WebViewOptions } from "./Webview";
 import { setupHotReload, isCompiledExecutable } from "./utils";
-import { ChildView, type ChildViewOptions, type ChildViewBounds } from "./ChildView";
+import { ChildView, type ChildViewOptions, type ChildViewBounds, type AutoResizeConfig, type AutoResizeMode, type AnchorConfig } from "./ChildView";
+import { Protocol } from "./Protocol";
 
 export interface WindowOptions extends WebViewOptions {}
 
 export type IPCHandler = (data: any) => any | Promise<any>;
 
-export { ChildView, type ChildViewOptions, type ChildViewBounds };
+export { ChildView, type ChildViewOptions, type ChildViewBounds, type AutoResizeConfig, type AutoResizeMode, type AnchorConfig };
+
+/**
+ * Information about a DOM element returned by automation queries
+ */
+export interface ElementInfo {
+    /** Element tag name (lowercase) */
+    tagName: string;
+    /** Element id attribute */
+    id: string;
+    /** Element class attribute */
+    className: string;
+    /** Inner text content */
+    textContent: string;
+    /** Inner HTML content */
+    innerHTML: string;
+    /** Element's bounding rectangle */
+    rect: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    /** Element attributes as key-value pairs */
+    attributes: Record<string, string>;
+    /** Whether the element is visible */
+    isVisible: boolean;
+    /** For inputs: the current value */
+    value?: string;
+    /** For links: the href */
+    href?: string;
+}
+
+/**
+ * Automation API for programmatic browser control
+ * Useful for AI agents to navigate and interact with web content
+ */
+export interface WindowAutomation {
+    // Navigation
+    goBack(): Promise<void>;
+    goForward(): Promise<void>;
+    reload(): Promise<void>;
+    getUrl(): Promise<string>;
+    getTitle(): Promise<string>;
+
+    // Content extraction
+    getHtml(): Promise<string>;
+    getText(): Promise<string>;
+    screenshot(): Promise<string>;
+
+    // DOM interaction
+    querySelector(selector: string): Promise<ElementInfo | null>;
+    querySelectorAll(selector: string): Promise<ElementInfo[]>;
+    click(selector: string): Promise<void>;
+    type(selector: string, text: string): Promise<void>;
+    getValue(selector: string): Promise<string>;
+    scrollTo(x: number, y: number): Promise<void>;
+    scrollIntoView(selector: string): Promise<void>;
+
+    // Waiting
+    waitForSelector(selector: string, timeout?: number): Promise<boolean>;
+
+    // File upload (real files from disk)
+    setInputFiles(selector: string, filePaths: string[]): Promise<void>;
+
+    // File download/save
+    /** Download a file from a URL and save it to a local path */
+    downloadFile(url: string, savePath: string): Promise<void>;
+    /** Save an image element (img tag) to a local file */
+    saveImage(selector: string, savePath: string): Promise<void>;
+    /** Get the src URL of an image element */
+    getImageSrc(selector: string): Promise<string | null>;
+}
+
+// ============================================================================
+// Dialog API Types
+// ============================================================================
+
+/** Message box type (affects the icon displayed) */
+export type MessageBoxType = "info" | "warning" | "error" | "question";
+
+/** Message box button configuration */
+export type MessageBoxButtons = "ok" | "okCancel" | "yesNo" | "yesNoCancel";
+
+/** Message box result */
+export type MessageBoxResult = "ok" | "cancel" | "yes" | "no";
+
+/** File filter for open/save dialogs */
+export interface FileFilter {
+    /** Display name for the filter (e.g., "Images") */
+    name: string;
+    /** File extensions without dots (e.g., ["png", "jpg", "gif"]) */
+    extensions: string[];
+}
+
+/** Options for file open dialog */
+export interface OpenFileOptions {
+    /** Dialog title */
+    title?: string;
+    /** File filters */
+    filters?: FileFilter[];
+    /** Allow selecting multiple files */
+    multiple?: boolean;
+}
+
+/** Options for file save dialog */
+export interface SaveFileOptions {
+    /** Dialog title */
+    title?: string;
+    /** Default file name */
+    defaultName?: string;
+    /** File filters */
+    filters?: FileFilter[];
+}
+
+/** Options for folder picker dialog */
+export interface OpenFolderOptions {
+    /** Dialog title */
+    title?: string;
+}
+
+/** Options for message box */
+export interface MessageBoxOptions {
+    /** Dialog title */
+    title?: string;
+    /** Main message text */
+    message: string;
+    /** Optional detail text (shown below the main message) */
+    detail?: string;
+    /** Message type (affects icon) - default: "info" */
+    type?: MessageBoxType;
+    /** Button configuration - default: "ok" */
+    buttons?: MessageBoxButtons;
+}
+
+/**
+ * Dialog API for showing native dialogs
+ */
+export interface WindowDialog {
+    /**
+     * Show a file open dialog
+     * @returns Array of selected file paths, or null if cancelled
+     */
+    openFile(options?: OpenFileOptions): Promise<string[] | null>;
+
+    /**
+     * Show a file save dialog
+     * @returns Selected file path, or null if cancelled
+     */
+    saveFile(options?: SaveFileOptions): Promise<string | null>;
+
+    /**
+     * Show a folder picker dialog
+     * @returns Selected folder path, or null if cancelled
+     */
+    openFolder(options?: OpenFolderOptions): Promise<string | null>;
+
+    /**
+     * Show a message box dialog
+     * @returns The button that was clicked
+     */
+    showMessage(options: MessageBoxOptions): Promise<MessageBoxResult>;
+
+    /**
+     * Show an info message box with OK button
+     */
+    showInfo(message: string, title?: string): Promise<void>;
+
+    /**
+     * Show a warning message box with OK button
+     */
+    showWarning(message: string, title?: string): Promise<void>;
+
+    /**
+     * Show an error message box with OK button
+     */
+    showError(message: string, title?: string): Promise<void>;
+
+    /**
+     * Show a confirmation dialog with Yes/No buttons
+     * @returns true if Yes was clicked, false if No
+     */
+    confirm(message: string, title?: string): Promise<boolean>;
+}
+
+// ============================================================================
+// Menu API Types
+// ============================================================================
+
+/** Menu item type */
+export type MenuItemType = "normal" | "separator" | "checkbox" | "radio" | "submenu";
+
+/** Standard menu item roles for automatic behavior */
+export type MenuItemRole =
+    // Application menu (macOS)
+    | "about"
+    | "services"
+    | "hide"
+    | "hideOthers"
+    | "unhide"
+    | "quit"
+    // Edit menu
+    | "undo"
+    | "redo"
+    | "cut"
+    | "copy"
+    | "paste"
+    | "pasteAndMatchStyle"
+    | "delete"
+    | "selectAll"
+    // View menu
+    | "reload"
+    | "forceReload"
+    | "toggleDevTools"
+    | "zoomIn"
+    | "zoomOut"
+    | "resetZoom"
+    | "toggleFullScreen"
+    // Window menu
+    | "minimize"
+    | "close"
+    | "zoom"
+    | "front";
+
+/** Menu item definition */
+export interface MenuItem {
+    /** Unique identifier for callbacks */
+    id?: string;
+    /** Display label */
+    label?: string;
+    /** Item type - default: "normal" */
+    type?: MenuItemType;
+    /** Standard role for automatic behavior */
+    role?: MenuItemRole;
+    /** Whether item is enabled - default: true */
+    enabled?: boolean;
+    /** Whether item is checked (for checkbox/radio) */
+    checked?: boolean;
+    /** Keyboard shortcut (e.g., "CmdOrCtrl+S", "Alt+F4") */
+    accelerator?: string;
+    /** Submenu items (if type is "submenu") */
+    submenu?: MenuItem[];
+    /** Click handler (called when item is clicked) */
+    click?: () => void;
+}
+
+/** Top-level menu definition */
+export interface Menu {
+    /** Unique identifier */
+    id?: string;
+    /** Menu label (e.g., "File", "Edit") */
+    label: string;
+    /** Menu items */
+    items: MenuItem[];
+}
+
+/**
+ * Menu API for application menu bar
+ */
+export interface WindowMenu {
+    /**
+     * Set the application menu bar
+     * @param menus Array of top-level menus
+     */
+    setMenu(menus: Menu[]): Promise<void>;
+
+    /**
+     * Set the default application menu (File, Edit, View, Window, Help)
+     * @param appName Application name for menu labels
+     */
+    setDefaultMenu(appName?: string): Promise<void>;
+
+    /**
+     * Remove the application menu bar
+     */
+    removeMenu(): Promise<void>;
+
+    /**
+     * Update a specific menu item
+     * @param itemId The ID of the item to update
+     * @param updates Properties to update
+     */
+    updateItem(itemId: string, updates: Partial<Pick<MenuItem, "label" | "enabled" | "checked">>): Promise<void>;
+
+    /**
+     * Enable or disable a menu item
+     * @param itemId The ID of the item
+     * @param enabled Whether to enable or disable
+     */
+    setItemEnabled(itemId: string, enabled: boolean): Promise<void>;
+
+    /**
+     * Set the checked state of a menu item
+     * @param itemId The ID of the item
+     * @param checked Whether to check or uncheck
+     */
+    setItemChecked(itemId: string, checked: boolean): Promise<void>;
+
+    /**
+     * Register a click handler for a menu item
+     * @param itemId The ID of the item
+     * @param handler Function to call when clicked
+     */
+    onClick(itemId: string, handler: () => void): void;
+
+    /**
+     * Remove a click handler for a menu item
+     * @param itemId The ID of the item
+     */
+    offClick(itemId: string): void;
+}
 
 export class Window {
     public readonly id: string;
@@ -16,12 +327,659 @@ export class Window {
     private childViews = new Map<string, ChildView>();
     private hotReloadCleanup: (() => void) | null = null;
     private currentUrl: string | null = null;
-    
+
+    /**
+     * Automation API for programmatic browser control.
+     * Useful for AI agents to navigate, read content, and interact with web pages.
+     */
+    public readonly automation: WindowAutomation;
+
+    /**
+     * Protocol API for low-level browser automation via CDP.
+     * Provides Puppeteer-like capabilities for cookies, PDF generation,
+     * input simulation, network monitoring, and request interception.
+     */
+    public readonly protocol: Protocol;
+
+    /**
+     * Dialog API for showing native dialogs.
+     * Provides file open/save dialogs, folder picker, and message boxes.
+     */
+    public readonly dialog: WindowDialog;
+
+    /**
+     * Menu API for application menu bar.
+     * Provides native menu bar with File, Edit, View, Window, Help menus.
+     */
+    public readonly menu: WindowMenu;
+
+    /** Menu click handlers by item ID */
+    private menuClickHandlers = new Map<string, () => void>();
+
     constructor(options: WindowOptions = {}) {
         this.id = Date.now().toString() + Math.random().toString(36).substring(2);
         this.webview = new Webview(options);
 
         this.webview.onIPC = this.onIPC.bind(this);
+
+        // Initialize automation API
+        this.automation = this.createAutomationAPI();
+
+        // Initialize protocol API
+        this.protocol = new Protocol(this.webview);
+
+        // Initialize dialog API
+        this.dialog = this.createDialogAPI();
+
+        // Initialize menu API
+        this.menu = this.createMenuAPI();
+
+        // Listen for events from native layer
+        this.webview.onEvent = (type: string, data: any) => {
+            if (type === "menu_click" && data?.menuId) {
+                const handler = this.menuClickHandlers.get(data.menuId);
+                if (handler) {
+                    handler();
+                }
+            } else if (type === "window_resize" && data?.width !== undefined && data?.height !== undefined) {
+                this.handleWindowResize(data.width, data.height);
+            }
+        };
+    }
+
+    /**
+     * Handle window resize events and update auto-resizing child views
+     * @internal
+     */
+    private handleWindowResize(newWidth: number, newHeight: number): void {
+        if (process.env.TRONBUN_DEBUG) {
+            console.log(`Window resized to ${newWidth}x${newHeight}`);
+        }
+
+        // Update all child views that have auto-resize enabled
+        for (const childView of this.childViews.values()) {
+            const config = childView.getAutoResizeConfig();
+            if (config && config.mode !== "none") {
+                const newBounds = childView.calculateResizedBounds(newWidth, newHeight);
+                if (newBounds) {
+                    // Update bounds asynchronously (don't await to avoid blocking)
+                    childView.setBounds(newBounds).catch(err => {
+                        console.error(`Failed to resize child view ${childView.id}:`, err);
+                    });
+                }
+            }
+        }
+    }
+
+    private createAutomationAPI(): WindowAutomation {
+        const webview = this.webview;
+
+        // Helper to extract element info from a DOM element
+        const getElementInfoScript = `
+            (function(el) {
+                if (!el) return null;
+                const rect = el.getBoundingClientRect();
+                const attrs = {};
+                for (const attr of el.attributes) {
+                    attrs[attr.name] = attr.value;
+                }
+                const style = window.getComputedStyle(el);
+                const isVisible = style.display !== 'none' &&
+                                  style.visibility !== 'hidden' &&
+                                  style.opacity !== '0' &&
+                                  rect.width > 0 && rect.height > 0;
+                return {
+                    tagName: el.tagName.toLowerCase(),
+                    id: el.id || '',
+                    className: el.className || '',
+                    textContent: el.textContent?.trim().substring(0, 1000) || '',
+                    innerHTML: el.innerHTML?.substring(0, 5000) || '',
+                    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                    attributes: attrs,
+                    isVisible: isVisible,
+                    value: el.value,
+                    href: el.href
+                };
+            })
+        `;
+
+        return {
+            // Navigation
+            async goBack(): Promise<void> {
+                await webview.eval('window.history.back()');
+            },
+
+            async goForward(): Promise<void> {
+                await webview.eval('window.history.forward()');
+            },
+
+            async reload(): Promise<void> {
+                await webview.eval('window.location.reload()');
+            },
+
+            async getUrl(): Promise<string> {
+                await webview.eval('window.location.href');
+                // Note: eval doesn't return values directly, so we use a workaround
+                const result = await webview.eval(`
+                    (function() {
+                        return window.location.href;
+                    })()
+                `);
+                return result as string || '';
+            },
+
+            async getTitle(): Promise<string> {
+                const result = await webview.eval(`
+                    (function() {
+                        return document.title;
+                    })()
+                `);
+                return result as string || '';
+            },
+
+            // Content extraction
+            async getHtml(): Promise<string> {
+                const result = await webview.eval(`
+                    (function() {
+                        return document.documentElement.outerHTML;
+                    })()
+                `);
+                return result as string || '';
+            },
+
+            async getText(): Promise<string> {
+                const result = await webview.eval(`
+                    (function() {
+                        return document.body.innerText;
+                    })()
+                `);
+                return result as string || '';
+            },
+
+            async screenshot(): Promise<string> {
+                const result = await webview.sendCommand('screenshot', {});
+                return result as string || '';
+            },
+
+            // DOM interaction
+            async querySelector(selector: string): Promise<ElementInfo | null> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const result = await webview.eval(`
+                    (function() {
+                        const el = document.querySelector('${escapedSelector}');
+                        return ${getElementInfoScript}(el);
+                    })()
+                `);
+                return result as ElementInfo | null;
+            },
+
+            async querySelectorAll(selector: string): Promise<ElementInfo[]> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const result = await webview.eval(`
+                    (function() {
+                        const elements = document.querySelectorAll('${escapedSelector}');
+                        const getInfo = ${getElementInfoScript};
+                        return Array.from(elements).map(el => getInfo(el)).filter(Boolean);
+                    })()
+                `);
+                return (result as ElementInfo[]) || [];
+            },
+
+            async click(selector: string): Promise<void> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                await webview.eval(`
+                    (function() {
+                        const el = document.querySelector('${escapedSelector}');
+                        if (el) {
+                            el.click();
+                            return true;
+                        }
+                        return false;
+                    })()
+                `);
+            },
+
+            async type(selector: string, text: string): Promise<void> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const escapedText = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                await webview.eval(`
+                    (function() {
+                        const el = document.querySelector('${escapedSelector}');
+                        if (el) {
+                            el.focus();
+                            el.value = '${escapedText}';
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            return true;
+                        }
+                        return false;
+                    })()
+                `);
+            },
+
+            async getValue(selector: string): Promise<string> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const result = await webview.eval(`
+                    (function() {
+                        const el = document.querySelector('${escapedSelector}');
+                        return el ? (el.value || el.textContent || '') : '';
+                    })()
+                `);
+                return result as string || '';
+            },
+
+            async scrollTo(x: number, y: number): Promise<void> {
+                await webview.eval(`window.scrollTo(${x}, ${y})`);
+            },
+
+            async scrollIntoView(selector: string): Promise<void> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                await webview.eval(`
+                    (function() {
+                        const el = document.querySelector('${escapedSelector}');
+                        if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    })()
+                `);
+            },
+
+            // Waiting
+            async waitForSelector(selector: string, timeout: number = 5000): Promise<boolean> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const result = await webview.eval(`
+                    (function() {
+                        return new Promise((resolve) => {
+                            const startTime = Date.now();
+                            const check = () => {
+                                const el = document.querySelector('${escapedSelector}');
+                                if (el) {
+                                    resolve(true);
+                                } else if (Date.now() - startTime >= ${timeout}) {
+                                    resolve(false);
+                                } else {
+                                    requestAnimationFrame(check);
+                                }
+                            };
+                            check();
+                        });
+                    })()
+                `);
+                return result as boolean || false;
+            },
+
+            // File upload - reads real files from disk and sets them on file input
+            async setInputFiles(selector: string, filePaths: string[]): Promise<void> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+                // Read files from disk and prepare them for injection
+                const fileDataArray: { name: string; type: string; base64: string }[] = [];
+
+                for (const filePath of filePaths) {
+                    const file = Bun.file(filePath);
+                    const exists = await file.exists();
+                    if (!exists) {
+                        throw new Error(`File not found: ${filePath}`);
+                    }
+
+                    const arrayBuffer = await file.arrayBuffer();
+                    const uint8Array = new Uint8Array(arrayBuffer);
+                    let binary = '';
+                    for (let i = 0; i < uint8Array.length; i++) {
+                        binary += String.fromCharCode(uint8Array[i]);
+                    }
+                    const base64 = btoa(binary);
+
+                    // Get filename from path
+                    const name = filePath.split('/').pop() || filePath.split('\\').pop() || 'file';
+                    const type = file.type || 'application/octet-stream';
+
+                    fileDataArray.push({ name, type, base64 });
+                }
+
+                // Inject files into the webview one by one to avoid large eval payloads
+                // First, clear any existing files and create a new DataTransfer
+                await webview.eval(`(function() { window.__tronbun_dt = new DataTransfer(); return true; })()`);
+
+                // Add each file to the DataTransfer
+                for (const fileData of fileDataArray) {
+                    const escapedName = fileData.name.replace(/'/g, "\\'");
+                    const escapedType = fileData.type.replace(/'/g, "\\'");
+                    // Split base64 into chunks to avoid hitting eval limits
+                    const chunkSize = 32000; // Safe chunk size
+                    const chunks = [];
+                    for (let i = 0; i < fileData.base64.length; i += chunkSize) {
+                        chunks.push(fileData.base64.slice(i, i + chunkSize));
+                    }
+
+                    // Build base64 string in webview
+                    await webview.eval(`(function() { window.__tronbun_b64 = ''; return true; })()`);
+                    for (const chunk of chunks) {
+                        await webview.eval(`(function() { window.__tronbun_b64 += '${chunk}'; return true; })()`);
+                    }
+
+                    // Create file from base64 and add to DataTransfer
+                    await webview.eval(`(function() { var b = atob(window.__tronbun_b64); var a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); window.__tronbun_dt.items.add(new File([a], '${escapedName}', { type: '${escapedType}' })); return true; })()`);
+                }
+
+                // Set files on the input and dispatch change event
+                await webview.eval(`(function() { var el = document.querySelector('${escapedSelector}'); if (el) { el.files = window.__tronbun_dt.files; } return true; })()`);
+                await webview.eval(`(function() { var el = document.querySelector('${escapedSelector}'); if (el) { el.dispatchEvent(new Event('change', { bubbles: true })); } return true; })()`);
+
+                // Cleanup - must return a value
+                await webview.eval(`(function() { delete window.__tronbun_dt; delete window.__tronbun_b64; return true; })()`);
+            },
+
+            // File download - download from URL to local file
+            async downloadFile(url: string, savePath: string): Promise<void> {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`Failed to download: ${response.status} ${response.statusText}`);
+                    }
+                    const arrayBuffer = await response.arrayBuffer();
+                    await Bun.write(savePath, arrayBuffer);
+                } catch (error) {
+                    throw new Error(`Download failed: ${error}`);
+                }
+            },
+
+            // Save an image element to a local file
+            async saveImage(selector: string, savePath: string): Promise<void> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+                // Get the image source URL
+                const result = await webview.eval(`
+                    (function() {
+                        const img = document.querySelector('${escapedSelector}');
+                        if (!img) return null;
+                        // Handle both img tags and background images
+                        if (img.tagName === 'IMG') {
+                            return img.src || img.currentSrc;
+                        }
+                        // Try to get background image
+                        const style = window.getComputedStyle(img);
+                        const bgImage = style.backgroundImage;
+                        if (bgImage && bgImage !== 'none') {
+                            const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
+                            return match ? match[1] : null;
+                        }
+                        return null;
+                    })()
+                `);
+
+                if (!result) {
+                    throw new Error(`No image found at selector: ${selector}`);
+                }
+
+                const imageUrl = result as string;
+
+                // Handle data URLs (base64 images)
+                if (imageUrl.startsWith('data:')) {
+                    const matches = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
+                    if (matches) {
+                        const base64Data = matches[2];
+                        const binaryData = Buffer.from(base64Data, 'base64');
+                        await Bun.write(savePath, binaryData);
+                        return;
+                    }
+                }
+
+                // Handle blob URLs - need to fetch from webview context
+                if (imageUrl.startsWith('blob:')) {
+                    const base64Result = await webview.eval(`
+                        (function() {
+                            return new Promise((resolve, reject) => {
+                                const img = document.querySelector('${escapedSelector}');
+                                if (!img || img.tagName !== 'IMG') {
+                                    resolve(null);
+                                    return;
+                                }
+                                const canvas = document.createElement('canvas');
+                                canvas.width = img.naturalWidth || img.width;
+                                canvas.height = img.naturalHeight || img.height;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0);
+                                resolve(canvas.toDataURL('image/png').split(',')[1]);
+                            });
+                        })()
+                    `);
+                    if (base64Result) {
+                        const binaryData = Buffer.from(base64Result as string, 'base64');
+                        await Bun.write(savePath, binaryData);
+                        return;
+                    }
+                }
+
+                // Regular URL - download directly
+                await this.downloadFile(imageUrl, savePath);
+            },
+
+            // Get the src URL of an image element
+            async getImageSrc(selector: string): Promise<string | null> {
+                const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const result = await webview.eval(`
+                    (function() {
+                        const img = document.querySelector('${escapedSelector}');
+                        if (!img) return null;
+                        if (img.tagName === 'IMG') {
+                            return img.src || img.currentSrc || null;
+                        }
+                        return null;
+                    })()
+                `);
+                return result as string | null;
+            }
+        };
+    }
+
+    private createDialogAPI(): WindowDialog {
+        const webview = this.webview;
+
+        // Map TypeScript types to native enum values
+        const typeMap: Record<MessageBoxType, number> = {
+            info: 0,
+            warning: 1,
+            error: 2,
+            question: 3
+        };
+
+        const buttonsMap: Record<MessageBoxButtons, number> = {
+            ok: 0,
+            okCancel: 1,
+            yesNo: 2,
+            yesNoCancel: 3
+        };
+
+        return {
+            async openFile(options?: OpenFileOptions): Promise<string[] | null> {
+                const result = await webview.sendCommand('open_file_dialog', {
+                    title: options?.title || '',
+                    filters: options?.filters ? JSON.stringify(options.filters) : '',
+                    allowMultiple: options?.multiple ? 1 : 0
+                });
+                // Result is a JSON array of paths or null
+                return result ? JSON.parse(result) : null;
+            },
+
+            async saveFile(options?: SaveFileOptions): Promise<string | null> {
+                const result = await webview.sendCommand('save_file_dialog', {
+                    title: options?.title || '',
+                    defaultName: options?.defaultName || '',
+                    filters: options?.filters ? JSON.stringify(options.filters) : ''
+                });
+                // Result is a JSON array with one path or null
+                if (result) {
+                    const paths = JSON.parse(result);
+                    return paths && paths.length > 0 ? paths[0] : null;
+                }
+                return null;
+            },
+
+            async openFolder(options?: OpenFolderOptions): Promise<string | null> {
+                const result = await webview.sendCommand('open_folder_dialog', {
+                    title: options?.title || ''
+                });
+                // Result is a JSON array with one path or null
+                if (result) {
+                    const paths = JSON.parse(result);
+                    return paths && paths.length > 0 ? paths[0] : null;
+                }
+                return null;
+            },
+
+            async showMessage(options: MessageBoxOptions): Promise<MessageBoxResult> {
+                const result = await webview.sendCommand('message_box', {
+                    title: options.title || '',
+                    message: options.message,
+                    detail: options.detail || '',
+                    type: typeMap[options.type || 'info'],
+                    buttons: buttonsMap[options.buttons || 'ok']
+                });
+                // Result is { result: "ok" | "cancel" | "yes" | "no" }
+                return (result as { result: MessageBoxResult }).result;
+            },
+
+            async showInfo(message: string, title?: string): Promise<void> {
+                await this.showMessage({
+                    message,
+                    title: title || 'Information',
+                    type: 'info',
+                    buttons: 'ok'
+                });
+            },
+
+            async showWarning(message: string, title?: string): Promise<void> {
+                await this.showMessage({
+                    message,
+                    title: title || 'Warning',
+                    type: 'warning',
+                    buttons: 'ok'
+                });
+            },
+
+            async showError(message: string, title?: string): Promise<void> {
+                await this.showMessage({
+                    message,
+                    title: title || 'Error',
+                    type: 'error',
+                    buttons: 'ok'
+                });
+            },
+
+            async confirm(message: string, title?: string): Promise<boolean> {
+                const result = await this.showMessage({
+                    message,
+                    title: title || 'Confirm',
+                    type: 'question',
+                    buttons: 'yesNo'
+                });
+                return result === 'yes';
+            }
+        };
+    }
+
+    private createMenuAPI(): WindowMenu {
+        const webview = this.webview;
+        const menuClickHandlers = this.menuClickHandlers;
+
+        // Helper to convert Menu[] to format expected by native and register click handlers
+        const processMenus = (menus: Menu[]): any[] => {
+            const processItem = (item: MenuItem): any => {
+                const result: any = {
+                    id: item.id || `item_${Date.now()}_${Math.random().toString(36).substring(2)}`,
+                    label: item.label || '',
+                    type: item.type || 'normal',
+                    enabled: item.enabled !== false,
+                    checked: item.checked || false
+                };
+
+                if (item.role) {
+                    result.role = item.role;
+                }
+
+                if (item.accelerator) {
+                    result.accelerator = item.accelerator;
+                }
+
+                if (item.submenu && item.submenu.length > 0) {
+                    result.submenu = item.submenu.map(processItem);
+                }
+
+                // Register click handler if provided
+                if (item.click) {
+                    menuClickHandlers.set(result.id, item.click);
+                }
+
+                return result;
+            };
+
+            return menus.map(menu => ({
+                id: menu.id || `menu_${Date.now()}_${Math.random().toString(36).substring(2)}`,
+                label: menu.label,
+                items: menu.items.map(processItem)
+            }));
+        };
+
+        return {
+            async setMenu(menus: Menu[]): Promise<void> {
+                // Clear existing handlers
+                menuClickHandlers.clear();
+
+                // Convert menus and register handlers
+                const processedMenus = processMenus(menus);
+
+                await webview.sendCommand('set_menu', {
+                    menus: processedMenus
+                });
+            },
+
+            async setDefaultMenu(appName?: string): Promise<void> {
+                await webview.sendCommand('set_default_menu', {
+                    appName: appName || 'Application'
+                });
+            },
+
+            async removeMenu(): Promise<void> {
+                menuClickHandlers.clear();
+                await webview.sendCommand('remove_menu', {});
+            },
+
+            async updateItem(itemId: string, updates: Partial<Pick<MenuItem, "label" | "enabled" | "checked">>): Promise<void> {
+                await webview.sendCommand('update_menu_item', {
+                    itemId,
+                    label: updates.label || '',
+                    enabled: updates.enabled !== undefined ? (updates.enabled ? 1 : 0) : -1,
+                    checked: updates.checked !== undefined ? (updates.checked ? 1 : 0) : -1
+                });
+            },
+
+            async setItemEnabled(itemId: string, enabled: boolean): Promise<void> {
+                await webview.sendCommand('update_menu_item', {
+                    itemId,
+                    label: '',
+                    enabled: enabled ? 1 : 0,
+                    checked: -1
+                });
+            },
+
+            async setItemChecked(itemId: string, checked: boolean): Promise<void> {
+                await webview.sendCommand('update_menu_item', {
+                    itemId,
+                    label: '',
+                    enabled: -1,
+                    checked: checked ? 1 : 0
+                });
+            },
+
+            onClick(itemId: string, handler: () => void): void {
+                menuClickHandlers.set(itemId, handler);
+            },
+
+            offClick(itemId: string): void {
+                menuClickHandlers.delete(itemId);
+            }
+        };
     }
 
     private async onIPC(channel: string, data: any, viewId?: string) {
@@ -48,6 +1006,15 @@ export class Window {
 
     public registerIPCHandler(name: string, handler: IPCHandler) {
         this.ipcHandlers.set(name, handler);
+    }
+
+    /**
+     * Alias for registerIPCHandler - registers a handler for IPC calls from the webview
+     * @param channel The channel name to handle
+     * @param handler The handler function
+     */
+    public handle(channel: string, handler: IPCHandler) {
+        this.registerIPCHandler(channel, handler);
     }
 
     public unregisterIPCHandler(name: string) {
@@ -166,6 +1133,26 @@ export class Window {
         // Create TypeScript wrapper
         const childView = new ChildView(this.webview, id, options.bounds);
         this.childViews.set(id, childView);
+
+        // Set up auto-resize if configured
+        if (options.autoResize) {
+            // Get current window size for proportional resize calculations
+            const windowSize = await this.getWindowSize();
+
+            // Normalize autoResize config
+            let config: AutoResizeConfig;
+            if (typeof options.autoResize === 'string') {
+                config = { mode: options.autoResize };
+            } else {
+                config = options.autoResize;
+            }
+
+            childView.setAutoResize(config, windowSize);
+
+            if (process.env.TRONBUN_DEBUG) {
+                console.log(`Child view ${id} auto-resize enabled: ${config.mode}`);
+            }
+        }
 
         // Initialize with content if provided
         if (options.html) {
@@ -306,5 +1293,13 @@ export class Window {
     async showWindow() {
         return this.webview.showWindow();
     }
-    
+
+    /**
+     * Get the current window size
+     * @returns Object with width and height properties
+     */
+    async getWindowSize(): Promise<{ width: number; height: number }> {
+        const result = await this.webview.sendCommand('window_get_size', {});
+        return result as { width: number; height: number };
+    }
 }

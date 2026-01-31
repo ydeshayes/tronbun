@@ -12,6 +12,47 @@ export interface ChildViewBounds {
 }
 
 /**
+ * Auto-resize mode for child views
+ * - "none": No auto-resize (default)
+ * - "fill": Fill the entire window (or specified margins)
+ * - "proportional": Maintain proportional position and size relative to window
+ * - "anchor": Keep specified edges anchored to window edges
+ */
+export type AutoResizeMode = "none" | "fill" | "proportional" | "anchor";
+
+/**
+ * Configuration for anchor-based auto-resize
+ * Specify which edges should stay anchored to the window edge
+ */
+export interface AnchorConfig {
+    /** Anchor to left edge - distance from left stays constant */
+    left?: boolean;
+    /** Anchor to right edge - distance from right stays constant */
+    right?: boolean;
+    /** Anchor to top edge - distance from top stays constant */
+    top?: boolean;
+    /** Anchor to bottom edge - distance from bottom stays constant */
+    bottom?: boolean;
+}
+
+/**
+ * Auto-resize configuration
+ */
+export interface AutoResizeConfig {
+    /** Resize mode */
+    mode: AutoResizeMode;
+    /** Margins for "fill" mode (optional) */
+    margins?: {
+        top?: number;
+        right?: number;
+        bottom?: number;
+        left?: number;
+    };
+    /** Anchor configuration for "anchor" mode */
+    anchors?: AnchorConfig;
+}
+
+/**
  * Options for creating a child view
  */
 export interface ChildViewOptions {
@@ -25,6 +66,8 @@ export interface ChildViewOptions {
     html?: string;
     /** Initial visibility (default: true) */
     visible?: boolean;
+    /** Auto-resize configuration (optional) */
+    autoResize?: AutoResizeConfig | AutoResizeMode;
 }
 
 /**
@@ -48,6 +91,15 @@ export class ChildView {
     /** Current visibility state */
     private visible: boolean = true;
 
+    /** Auto-resize configuration */
+    private autoResizeConfig: AutoResizeConfig | null = null;
+
+    /** Initial window size when child view was created (for proportional resize) */
+    private initialWindowSize: { width: number; height: number } | null = null;
+
+    /** Initial bounds (for proportional resize) */
+    private initialBounds: ChildViewBounds;
+
     /**
      * Create a new ChildView. Should be called via Window.createChildView()
      * @internal
@@ -56,6 +108,120 @@ export class ChildView {
         this.id = id;
         this.parentWebview = parentWebview;
         this.bounds = { ...bounds };
+        this.initialBounds = { ...bounds };
+    }
+
+    /**
+     * Set auto-resize configuration
+     * @internal Called by Window
+     */
+    setAutoResize(config: AutoResizeConfig | null, windowSize: { width: number; height: number }): void {
+        this.autoResizeConfig = config;
+        this.initialWindowSize = windowSize;
+        this.initialBounds = { ...this.bounds };
+    }
+
+    /**
+     * Get auto-resize configuration
+     * @internal
+     */
+    getAutoResizeConfig(): AutoResizeConfig | null {
+        return this.autoResizeConfig;
+    }
+
+    /**
+     * Calculate new bounds based on window resize
+     * @internal Called by Window on resize events
+     */
+    calculateResizedBounds(newWindowWidth: number, newWindowHeight: number): ChildViewBounds | null {
+        if (!this.autoResizeConfig || this.autoResizeConfig.mode === "none") {
+            return null;
+        }
+
+        const config = this.autoResizeConfig;
+
+        switch (config.mode) {
+            case "fill": {
+                const margins = config.margins || {};
+                const top = margins.top ?? 0;
+                const right = margins.right ?? 0;
+                const bottom = margins.bottom ?? 0;
+                const left = margins.left ?? 0;
+
+                return {
+                    x: left,
+                    y: top,
+                    width: Math.max(0, newWindowWidth - left - right),
+                    height: Math.max(0, newWindowHeight - top - bottom)
+                };
+            }
+
+            case "proportional": {
+                if (!this.initialWindowSize) {
+                    return null;
+                }
+
+                const scaleX = newWindowWidth / this.initialWindowSize.width;
+                const scaleY = newWindowHeight / this.initialWindowSize.height;
+
+                return {
+                    x: Math.round(this.initialBounds.x * scaleX),
+                    y: Math.round(this.initialBounds.y * scaleY),
+                    width: Math.round(this.initialBounds.width * scaleX),
+                    height: Math.round(this.initialBounds.height * scaleY)
+                };
+            }
+
+            case "anchor": {
+                if (!this.initialWindowSize || !config.anchors) {
+                    return null;
+                }
+
+                const anchors = config.anchors;
+                const initial = this.initialBounds;
+                const oldWidth = this.initialWindowSize.width;
+                const oldHeight = this.initialWindowSize.height;
+
+                let x = initial.x;
+                let y = initial.y;
+                let width = initial.width;
+                let height = initial.height;
+
+                // Calculate horizontal positioning
+                if (anchors.left && anchors.right) {
+                    // Both anchored: stretch width
+                    const rightMargin = oldWidth - initial.x - initial.width;
+                    width = newWindowWidth - initial.x - rightMargin;
+                } else if (anchors.right) {
+                    // Only right anchored: keep distance from right
+                    const rightMargin = oldWidth - initial.x - initial.width;
+                    x = newWindowWidth - width - rightMargin;
+                }
+                // If only left or none anchored, keep x position
+
+                // Calculate vertical positioning
+                if (anchors.top && anchors.bottom) {
+                    // Both anchored: stretch height
+                    const bottomMargin = oldHeight - initial.y - initial.height;
+                    height = newWindowHeight - initial.y - bottomMargin;
+                } else if (anchors.bottom) {
+                    // Only bottom anchored: keep distance from bottom
+                    const bottomMargin = oldHeight - initial.y - initial.height;
+                    y = newWindowHeight - height - bottomMargin;
+                }
+                // If only top or none anchored, keep y position
+
+                return {
+                    x: Math.max(0, x),
+                    y: Math.max(0, y),
+                    width: Math.max(0, width),
+                    height: Math.max(0, height)
+                };
+            }
+
+            default:
+                return null;
+        }
     }
 
     // =========================================================================

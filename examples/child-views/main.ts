@@ -4,17 +4,20 @@
  * Demonstrates embedded child webviews within a parent window,
  * similar to Electron's BrowserView pattern.
  *
+ * Now with auto-resize support! Child views can automatically
+ * resize when the parent window is resized.
+ *
  * Run with: bun examples/child-views/main.ts
  */
 
-import { Window } from "../../src";
+import { Window, type AutoResizeMode } from "../../src";
 
 async function main() {
     // Create main window
     const mainWindow = new Window({
         width: 1000,
         height: 700,
-        title: 'Child Views Demo',
+        title: 'Child Views Demo - Resize the window!',
         debug: true
     });
 
@@ -45,7 +48,8 @@ async function main() {
                 }
                 .controls {
                     display: flex;
-                    gap: 10px;
+                    gap: 8px;
+                    flex-wrap: wrap;
                 }
                 button {
                     background: #0078d4;
@@ -59,10 +63,24 @@ async function main() {
                 button:hover {
                     background: #1084d8;
                 }
+                button.active {
+                    background: #28a745;
+                }
+                button.secondary {
+                    background: #6c757d;
+                }
+                button.secondary:hover {
+                    background: #5a6268;
+                }
                 .info {
-                    padding: 20px;
+                    padding: 15px 20px;
                     color: #888;
                     font-size: 13px;
+                    background: #252525;
+                    border-bottom: 1px solid #333;
+                }
+                .info strong {
+                    color: #0078d4;
                 }
             </style>
         </head>
@@ -70,14 +88,14 @@ async function main() {
             <div class="header">
                 <h1>Child Views Demo</h1>
                 <div class="controls">
-                    <button onclick="tronbun.invoke('toggle-sidebar')">Toggle Sidebar</button>
-                    <button onclick="tronbun.invoke('swap-z-order')">Swap Z-Order</button>
-                    <button onclick="tronbun.invoke('resize-content')">Resize Content</button>
+                    <button onclick="tronbun.invoke('toggle-sidebar')" class="secondary">Toggle Sidebar</button>
+                    <button onclick="tronbun.invoke('swap-z-order')" class="secondary">Swap Z-Order</button>
                 </div>
             </div>
             <div class="info">
-                The colored areas below are embedded child webviews.<br>
-                Each has its own IPC handlers and can be controlled independently.
+                <strong>Auto-Resize Demo:</strong> Drag the window edges to resize and watch the child views adapt!<br>
+                The sidebar uses <strong>anchor</strong> mode (fixed width, stretches vertically).<br>
+                The content uses <strong>anchor</strong> mode (stretches both horizontally and vertically).
             </div>
         </body>
         </html>
@@ -85,22 +103,12 @@ async function main() {
 
     // Register main window IPC handlers
     let sidebarVisible = true;
-    let contentExpanded = false;
 
     mainWindow.registerIPCHandler('toggle-sidebar', async () => {
         sidebarVisible = !sidebarVisible;
         const sidebar = mainWindow.getChildView('sidebar');
         if (sidebar) {
             await sidebar.setVisible(sidebarVisible);
-            // Adjust content view when sidebar is hidden
-            const content = mainWindow.getChildView('content');
-            if (content) {
-                if (sidebarVisible) {
-                    await content.setBounds({ x: 200, y: 80, width: 800, height: 620 });
-                } else {
-                    await content.setBounds({ x: 0, y: 80, width: 1000, height: 620 });
-                }
-            }
         }
         console.log(`Sidebar ${sidebarVisible ? 'shown' : 'hidden'}`);
     });
@@ -114,26 +122,25 @@ async function main() {
         }
     });
 
-    mainWindow.registerIPCHandler('resize-content', async () => {
-        const content = mainWindow.getChildView('content');
-        if (content) {
-            contentExpanded = !contentExpanded;
-            if (contentExpanded) {
-                await content.setBounds({ x: 100, y: 60, width: 800, height: 600 });
-            } else {
-                await content.setBounds({ x: 200, y: 80, width: 800, height: 620 });
-            }
-            console.log(`Content ${contentExpanded ? 'expanded' : 'normal'}`);
-        }
-    });
-
     // Wait a bit for main window to initialize
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Create sidebar child view
+    // Create sidebar child view with ANCHOR auto-resize
+    // - Anchored to left, top, and bottom edges
+    // - Width stays fixed at 200px
+    // - Height stretches with window
     const sidebar = await mainWindow.createChildView({
         id: 'sidebar',
-        bounds: { x: 0, y: 80, width: 200, height: 620 },
+        bounds: { x: 0, y: 120, width: 200, height: 580 },
+        autoResize: {
+            mode: 'anchor',
+            anchors: {
+                left: true,
+                top: true,
+                bottom: true
+                // right: false - width stays fixed
+            }
+        },
         html: `
             <!DOCTYPE html>
             <html>
@@ -146,11 +153,22 @@ async function main() {
                         color: #fff;
                         height: 100vh;
                         box-sizing: border-box;
+                        overflow: hidden;
                     }
                     .sidebar-header {
                         padding: 15px;
                         border-bottom: 1px solid rgba(255,255,255,0.2);
                         font-weight: 600;
+                        background: rgba(0,0,0,0.1);
+                    }
+                    .resize-mode {
+                        padding: 10px 15px;
+                        background: rgba(0,0,0,0.2);
+                        font-size: 11px;
+                        border-bottom: 1px solid rgba(255,255,255,0.1);
+                    }
+                    .resize-mode strong {
+                        color: #ffd700;
                     }
                     .nav-item {
                         padding: 12px 15px;
@@ -185,10 +203,25 @@ async function main() {
                     button:hover {
                         background: rgba(255,255,255,0.3);
                     }
+                    .size-display {
+                        position: absolute;
+                        bottom: 10px;
+                        left: 10px;
+                        right: 10px;
+                        padding: 8px;
+                        background: rgba(0,0,0,0.3);
+                        border-radius: 4px;
+                        font-size: 11px;
+                        font-family: monospace;
+                    }
                 </style>
             </head>
             <body>
                 <div class="sidebar-header">Sidebar View</div>
+                <div class="resize-mode">
+                    Mode: <strong>anchor</strong><br>
+                    (left, top, bottom)
+                </div>
                 <div class="nav-item active" onclick="selectItem(0)">Dashboard</div>
                 <div class="nav-item" onclick="selectItem(1)">Settings</div>
                 <div class="nav-item" onclick="selectItem(2)">Profile</div>
@@ -201,14 +234,24 @@ async function main() {
                     <button onclick="sendToContent()">Send to Content</button>
                 </div>
 
+                <div class="size-display" id="size-display">
+                    Size: calculating...
+                </div>
+
                 <script>
                     let counter = 0;
+
+                    function updateSize() {
+                        document.getElementById('size-display').textContent =
+                            'Size: ' + window.innerWidth + ' x ' + window.innerHeight;
+                    }
+                    window.addEventListener('resize', updateSize);
+                    updateSize();
 
                     function selectItem(index) {
                         document.querySelectorAll('.nav-item').forEach((el, i) => {
                             el.classList.toggle('active', i === index);
                         });
-                        // Notify main window
                         tronbun.invoke('sidebar-selection', { index });
                     }
 
@@ -234,7 +277,6 @@ async function main() {
     });
 
     sidebar.registerIPCHandler('send-to-content', async (data) => {
-        // Forward to content view via main window
         const content = mainWindow.getChildView('content');
         if (content) {
             await content.eval(`updateFromSidebar(${data.value})`);
@@ -242,10 +284,22 @@ async function main() {
         return { forwarded: true, value: data.value };
     });
 
-    // Create main content child view
+    // Create main content child view with ANCHOR auto-resize
+    // - Anchored to all four edges
+    // - Stretches both horizontally and vertically
+    // - Maintains 200px margin on left (for sidebar)
     const content = await mainWindow.createChildView({
         id: 'content',
-        bounds: { x: 200, y: 80, width: 800, height: 620 },
+        bounds: { x: 200, y: 120, width: 800, height: 580 },
+        autoResize: {
+            mode: 'anchor',
+            anchors: {
+                left: true,
+                right: true,
+                top: true,
+                bottom: true
+            }
+        },
         html: `
             <!DOCTYPE html>
             <html>
@@ -261,6 +315,7 @@ async function main() {
                         flex-direction: column;
                         justify-content: center;
                         align-items: center;
+                        overflow: hidden;
                     }
                     h1 {
                         font-size: 36px;
@@ -269,7 +324,17 @@ async function main() {
                     .subtitle {
                         font-size: 14px;
                         opacity: 0.8;
-                        margin-bottom: 30px;
+                        margin-bottom: 20px;
+                    }
+                    .resize-mode {
+                        padding: 12px 20px;
+                        background: rgba(0,0,0,0.2);
+                        border-radius: 8px;
+                        margin-bottom: 20px;
+                        text-align: center;
+                    }
+                    .resize-mode strong {
+                        color: #ffd700;
                     }
                     .received-value {
                         font-size: 24px;
@@ -295,11 +360,26 @@ async function main() {
                     button:hover {
                         background: rgba(255,255,255,0.3);
                     }
+                    .size-display {
+                        position: absolute;
+                        bottom: 15px;
+                        right: 15px;
+                        padding: 10px 15px;
+                        background: rgba(0,0,0,0.3);
+                        border-radius: 6px;
+                        font-size: 13px;
+                        font-family: monospace;
+                    }
                 </style>
             </head>
             <body>
                 <h1>Content View</h1>
-                <div class="subtitle">This is an embedded child webview</div>
+                <div class="subtitle">This is an embedded child webview with auto-resize</div>
+
+                <div class="resize-mode">
+                    Mode: <strong>anchor</strong> (all edges)<br>
+                    <small>Stretches horizontally and vertically with window</small>
+                </div>
 
                 <div class="received-value">
                     Value from sidebar: <span id="sidebar-value">0</span>
@@ -310,6 +390,10 @@ async function main() {
                     <button onclick="changeColor()">Change Color</button>
                 </div>
 
+                <div class="size-display" id="size-display">
+                    Size: calculating...
+                </div>
+
                 <script>
                     let colorIndex = 0;
                     const colors = [
@@ -318,6 +402,13 @@ async function main() {
                         'linear-gradient(135deg, #00b4db 0%, #0083b0 100%)',
                         'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
                     ];
+
+                    function updateSize() {
+                        document.getElementById('size-display').textContent =
+                            'Size: ' + window.innerWidth + ' x ' + window.innerHeight;
+                    }
+                    window.addEventListener('resize', updateSize);
+                    updateSize();
 
                     function updateFromSidebar(value) {
                         document.getElementById('sidebar-value').textContent = value;
@@ -347,15 +438,23 @@ async function main() {
         return { received: true, echo: data.message };
     });
 
-    console.log('Child Views Demo started!');
-    console.log('- Main window with header controls');
-    console.log('- Sidebar child view (purple gradient)');
-    console.log('- Content child view (green gradient)');
     console.log('');
-    console.log('Try the controls:');
-    console.log('- "Toggle Sidebar" - shows/hides sidebar');
-    console.log('- "Swap Z-Order" - brings sidebar to front');
-    console.log('- "Resize Content" - toggles content size');
+    console.log('===========================================');
+    console.log('  Child Views Demo with Auto-Resize');
+    console.log('===========================================');
+    console.log('');
+    console.log('Child views created:');
+    console.log('  - Sidebar (purple): anchor mode (left, top, bottom)');
+    console.log('  - Content (green): anchor mode (all edges)');
+    console.log('');
+    console.log('Try resizing the window to see auto-resize in action!');
+    console.log('');
+    console.log('Auto-resize modes available:');
+    console.log('  - "none": No auto-resize (default)');
+    console.log('  - "fill": Fill entire window (with optional margins)');
+    console.log('  - "proportional": Scale proportionally with window');
+    console.log('  - "anchor": Keep edges anchored to window edges');
+    console.log('');
 }
 
 main().catch(console.error);

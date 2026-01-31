@@ -19,6 +19,19 @@ export interface MainWindowHandlers {
   addDecorations: (data: void) => Promise<void>;
   hideWindow: (data: void) => Promise<void>;
   showWindow: (data: void) => Promise<void>;
+  openFileDialog: (data: { title?: string; multiple?: boolean; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<string[] | any>;
+  saveFileDialog: (data: { title?: string; defaultName?: string; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<string | any>;
+  openFolderDialog: (data: { title?: string }) => Promise<string | any>;
+  showInfoDialog: (data: { message: string; title?: string }) => Promise<void>;
+  showWarningDialog: (data: { message: string; title?: string }) => Promise<void>;
+  showErrorDialog: (data: { message: string; title?: string }) => Promise<void>;
+  confirmDialog: (data: { message: string; title?: string }) => Promise<boolean>;
+  messageBoxDialog: (data: { title?: string; message: string; detail?: string; type?: "info" | "warning" | "error" | "question"; buttons?: "ok" | "okCancel" | "yesNo" | "yesNoCancel" }) => Promise<string>;
+  setDefaultMenu: (data: void) => Promise<void>;
+  removeMenu: (data: void) => Promise<void>;
+  resetCustomMenu: (data: void) => Promise<void>;
+  setMenuItemEnabled: (data: { itemId: string; enabled: boolean }) => Promise<void>;
+  setMenuItemChecked: (data: { itemId: string; checked: boolean }) => Promise<void>;
 }
 
 

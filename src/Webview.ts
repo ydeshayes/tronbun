@@ -20,30 +20,62 @@ export interface WebViewOptions {
     hidden?: boolean;
 }  
 export interface WebViewResponse extends BaseResponse {
-    type: 'response' | 'bind_callback' | 'ipc:call';
+    type: 'response' | 'bind_callback' | 'ipc:call' | 'window_resize' | 'menu_click' | string;
     req?: any;
     seq?: string;
     viewId?: string;  // For routing IPC to child views
+    data?: any;  // For event types (window_resize, menu_click, etc.)
 }
 
 export class Webview extends BaseProcess {
     private bindCallbacks = new Map<string, (data: any) => void>();
+    private pendingEvals = new Map<string, {
+        resolve: (value: any) => void;
+        reject: (error: Error) => void;
+    }>();
 
     public onIPC = (channel: string, data: any, viewId?: string) => {
         console.log('onIPC', channel, data, 'viewId:', viewId);
     };
+
+    /** Callback for native events (window_resize, menu_click, etc.) */
+    public onEvent: ((type: string, data: any) => void) | null = null;
 
     protected getProcessName(): string {
         return "WebView";
     }
 
     protected async handleSpecificResponse(response: WebViewResponse): Promise<void> {
+        // Handle native events (window_resize, menu_click, etc.)
+        if (response.type && response.type !== 'response' && response.type !== 'ipc:call' && response.data !== undefined) {
+            if (this.onEvent) {
+                this.onEvent(response.type, response.data);
+            }
+            return;
+        }
+
         if (response.type === 'ipc:call' && response.req) {
             if (process.env.TRONBUN_DEBUG) {
                 console.log('ipc:call', response.req, 'viewId:', response.viewId);
             }
 
             const payload = JSON.parse(response.req[1]);
+
+            // Handle eval results specially
+            if (payload.channel === '__eval_result__') {
+                const { id, result, error } = payload.data;
+                const pending = this.pendingEvals.get(id);
+                if (pending) {
+                    this.pendingEvals.delete(id);
+                    if (error) {
+                        pending.reject(new Error(error));
+                    } else {
+                        pending.resolve(result);
+                    }
+                }
+                return;
+            }
+
             // Extract viewId from payload if present (child views include it)
             const viewId = payload.viewId || response.viewId;
             const result = await this.onIPC(payload.channel, payload.data, viewId);
@@ -75,10 +107,15 @@ export class Webview extends BaseProcess {
         if (options.center) this.centerWindow();
         if (options.hidden) this.hideWindow();
     }
-    // Override cleanup to also clear bind callbacks
+    // Override cleanup to also clear bind callbacks and pending evals
     override cleanup(): void {
         // Clear callbacks before calling parent cleanup
         this.bindCallbacks.clear();
+        // Reject any pending evals
+        for (const [id, pending] of this.pendingEvals) {
+            pending.reject(new Error('Webview cleanup: eval cancelled'));
+        }
+        this.pendingEvals.clear();
         super.cleanup();
     }
 
@@ -100,8 +137,37 @@ export class Webview extends BaseProcess {
     await this.sendCommand('set_html', { html });
   }
 
-  async eval(js: string): Promise<any> {
-    return await this.sendCommand('eval', { js });
+  async eval(js: string, timeout: number = 30000): Promise<any> {
+    // Generate unique ID for this eval
+    const evalId = `eval_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Create a promise that will be resolved when the result comes back via IPC
+    return new Promise<any>((resolve, reject) => {
+      // Set up timeout to prevent memory leaks
+      const timeoutId = setTimeout(() => {
+        if (this.pendingEvals.has(evalId)) {
+          this.pendingEvals.delete(evalId);
+          reject(new Error(`Eval timed out after ${timeout}ms`));
+        }
+      }, timeout);
+
+      // Store the resolve/reject callbacks
+      this.pendingEvals.set(evalId, {
+        resolve: (value) => {
+          clearTimeout(timeoutId);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        }
+      });
+
+      // Send the eval command with our custom ID (no wait)
+      // The native code wraps the JS to send results via __bunwebview_invoke callback
+      // rather than via the normal response mechanism
+      this.sendCommandNoWait('eval', { js }, evalId);
+    });
   }
 
   async init(js: string): Promise<void> {

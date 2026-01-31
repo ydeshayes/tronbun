@@ -65,10 +65,14 @@ ifeq ($(UNAME_S),Darwin)
     # macOS with Cocoa/WebKit
     CFLAGS += -DWEBVIEW_COCOA=1 -DTRONBUN_CUSTOM_SCHEME=1
     CXXFLAGS += -DTRONBUN_CUSTOM_SCHEME=1
-    LDFLAGS += -framework Cocoa -framework WebKit -framework UserNotifications
+    LDFLAGS += -framework Cocoa -framework WebKit -framework UserNotifications -framework UniformTypeIdentifiers
     WEBVIEW_IMPL = webview_adapter/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_macos.mm
     CHILD_VIEW_IMPL = platform/platform_child_view_macos.mm
+    SCREENSHOT_IMPL = platform/platform_screenshot_macos.mm
+    CDP_IMPL = platform/platform_cdp_macos.mm
+    FILE_DIALOG_IMPL = platform/platform_file_dialog_macos.mm
+    MENU_IMPL = platform/platform_menu_macos.mm
     TRAY_PLATFORM_IMPL = platform/platform_tray_macos.mm
     VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_macos.mm
     TARGET_EXT =
@@ -82,8 +86,12 @@ ifeq ($(OS),Windows_NT)
     WEBVIEW_IMPL = webview_adapter/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_win.c
     CHILD_VIEW_IMPL = platform/platform_child_view_win.cpp
+    SCREENSHOT_IMPL = platform/platform_screenshot_win.cpp
+    FILE_DIALOG_IMPL = platform/platform_file_dialog_win.cpp
+    MENU_IMPL = platform/platform_menu_win.cpp
     TRAY_PLATFORM_IMPL = platform/platform_tray_win.c
     VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_win.cpp
+    CDP_IMPL = platform/platform_cdp_win.cpp
     TARGET_EXT = _win.exe
 
     # Static linking flags for Windows
@@ -100,7 +108,7 @@ TARGETS = $(BUILD_DIR)/webview_main$(TARGET_EXT) $(BUILD_DIR)/tray_main$(TARGET_
 STATIC_TARGETS = $(BUILD_DIR)/webview_main_static$(TARGET_EXT) $(BUILD_DIR)/tray_main_static$(TARGET_EXT)
 FULL_STATIC_TARGETS = $(BUILD_DIR)/webview_main_full_static$(TARGET_EXT) $(BUILD_DIR)/tray_main_full_static$(TARGET_EXT)
 
-.PHONY: all clean help test test-clean test-all test-app static full-static
+.PHONY: all clean help test test-clean test-all test-app test-resize static full-static
 
 all: $(TARGETS)
 
@@ -112,8 +120,8 @@ full-static: $(FULL_STATIC_TARGETS)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
+$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 
 $(BUILD_DIR)/tray_main$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
 ifeq ($(UNAME_S),Darwin)
@@ -122,13 +130,13 @@ else
 	$(CC) $(CFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
 endif
 
-$(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
+$(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
-	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(STATIC_LDFLAGS)
+	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(STATIC_LDFLAGS)
 else
 	@echo "Static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 endif
 
 $(BUILD_DIR)/tray_main_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
@@ -144,13 +152,13 @@ else
 endif
 endif
 
-$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
+$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
-	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(FULL_STATIC_LDFLAGS)
+	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(FULL_STATIC_LDFLAGS)
 else
 	@echo "Full static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 endif
 
 $(BUILD_DIR)/tray_main_full_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
@@ -226,13 +234,32 @@ $(BUILD_DIR)/test_ipc_common: $(TEST_IPC_COMMON) $(IPC_COMMON) | $(BUILD_DIR)
 $(BUILD_DIR)/test_memory_leaks: $(TEST_DIR)/test_memory_leaks.c $(IPC_COMMON) platform/virtual_fs.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -DTEST_BUILD -o $@ $< $(IPC_COMMON) platform/virtual_fs.c
 
+$(BUILD_DIR)/test_dialogs: $(TEST_DIR)/test_dialogs.c $(IPC_COMMON) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DTEST_BUILD -o $@ $< $(IPC_COMMON)
 
+$(BUILD_DIR)/test_menu: $(TEST_DIR)/test_menu.c $(IPC_COMMON) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DTEST_BUILD -o $@ $< $(IPC_COMMON)
+
+$(BUILD_DIR)/test_resize: $(TEST_DIR)/test_resize.c $(IPC_COMMON) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DTEST_BUILD -o $@ $< $(IPC_COMMON)
 
 test-clean:
 	rm -f $(BUILD_DIR)/test_*
 	@echo "Test binaries cleaned"
 
-test-all: test test-memory
+test-dialogs: $(BUILD_DIR)/test_dialogs
+	@echo "🧪 Running Dialog unit tests..."
+	@$(BUILD_DIR)/test_dialogs
+
+test-menu: $(BUILD_DIR)/test_menu
+	@echo "🧪 Running Menu unit tests..."
+	@$(BUILD_DIR)/test_menu
+
+test-resize: $(BUILD_DIR)/test_resize
+	@echo "🧪 Running Window Resize Callback unit tests..."
+	@$(BUILD_DIR)/test_resize
+
+test-all: test test-memory test-dialogs test-menu test-resize
 	@echo "✅ All native tests completed successfully!"
 
 # Application test target (run the actual webview)

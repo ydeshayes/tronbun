@@ -1,7 +1,43 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <dwmapi.h>
+#include <stdio.h>
 #include "platform_window.h"
+
+// ============================================================================
+// Window Resize Callback Support
+// ============================================================================
+
+// Property names for storing callback info on window
+static const char* PROP_RESIZE_CALLBACK = "TronbunResizeCallback";
+static const char* PROP_RESIZE_USERDATA = "TronbunResizeUserData";
+static const char* PROP_ORIGINAL_WNDPROC = "TronbunOriginalWndProc";
+
+// Custom window procedure to intercept resize messages
+static LRESULT CALLBACK ResizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    // Get the original window procedure
+    WNDPROC originalWndProc = (WNDPROC)GetPropA(hwnd, PROP_ORIGINAL_WNDPROC);
+
+    if (msg == WM_SIZE && wParam != SIZE_MINIMIZED) {
+        // Get the callback and user data
+        platform_window_resize_callback_t callback =
+            (platform_window_resize_callback_t)GetPropA(hwnd, PROP_RESIZE_CALLBACK);
+        void* userData = GetPropA(hwnd, PROP_RESIZE_USERDATA);
+
+        if (callback) {
+            // LOWORD/HIWORD of lParam contain client area dimensions
+            int width = LOWORD(lParam);
+            int height = HIWORD(lParam);
+            callback(width, height, userData);
+        }
+    }
+
+    // Call the original window procedure
+    if (originalWndProc) {
+        return CallWindowProc(originalWndProc, hwnd, msg, wParam, lParam);
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
 
 void platform_window_set_transparent(void *native_window) {
     HWND hwnd = (HWND)native_window;
@@ -168,6 +204,46 @@ void platform_window_show(void *native_window) {
     if (hwnd) {
         ShowWindow(hwnd, SW_SHOW);
         SetForegroundWindow(hwnd);
+    }
+}
+
+void platform_window_register_resize_callback(void *native_window,
+                                              platform_window_resize_callback_t callback,
+                                              void *user_data) {
+    HWND hwnd = (HWND)native_window;
+    if (hwnd && callback) {
+        // Check if we've already subclassed this window
+        WNDPROC currentProc = (WNDPROC)GetWindowLongPtr(hwnd, GWLP_WNDPROC);
+        if (currentProc != ResizeWndProc) {
+            // Store the original window procedure
+            SetPropA(hwnd, PROP_ORIGINAL_WNDPROC, (HANDLE)currentProc);
+
+            // Subclass the window
+            SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)ResizeWndProc);
+        }
+
+        // Store the callback and user data
+        SetPropA(hwnd, PROP_RESIZE_CALLBACK, (HANDLE)callback);
+        SetPropA(hwnd, PROP_RESIZE_USERDATA, (HANDLE)user_data);
+
+        fprintf(stderr, "Registered resize callback for window %p\n", native_window);
+    }
+}
+
+void platform_window_get_size(void *native_window, int *width, int *height) {
+    HWND hwnd = (HWND)native_window;
+    if (hwnd) {
+        RECT rect;
+        if (GetClientRect(hwnd, &rect)) {
+            if (width) *width = rect.right - rect.left;
+            if (height) *height = rect.bottom - rect.top;
+        } else {
+            if (width) *width = 0;
+            if (height) *height = 0;
+        }
+    } else {
+        if (width) *width = 0;
+        if (height) *height = 0;
     }
 }
 

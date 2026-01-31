@@ -49,7 +49,7 @@ export abstract class BaseProcess {
     /**
      * Send a command to the process
      */
-    async sendCommand(method: string, params: any = {}, customId?: string): Promise<any> {
+    public async sendCommand(method: string, params: any = {}, customId?: string): Promise<any> {
         if (this.isDestroyed) {
             throw new Error(`${this.getProcessName()} process is destroyed`);
         }

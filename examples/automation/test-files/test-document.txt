@@ -1,0 +1,4 @@
+This is a real test document.
+Created at: 2026-01-18T15:06:57.303Z
+Content: Hello from the file system!
+This file was read from disk and uploaded via automation.
