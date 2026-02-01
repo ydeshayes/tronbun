@@ -82,7 +82,7 @@ ifeq ($(OS),Windows_NT)
     # Windows with WebView2
     CFLAGS += -DWEBVIEW_EDGE=1 -DUNICODE -D_UNICODE -DTRONBUN_CUSTOM_SCHEME=1
     CXXFLAGS += -DUNICODE -D_UNICODE -DTRONBUN_CUSTOM_SCHEME=1
-    LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32
+    LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32 -luuid
     WEBVIEW_IMPL = webview_adapter/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_win.c
     CHILD_VIEW_IMPL = platform/platform_child_view_win.cpp

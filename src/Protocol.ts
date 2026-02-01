@@ -121,7 +121,7 @@ export class Protocol {
     async call(method: string, params: Record<string, any> = {}): Promise<any> {
         return await this.webview.sendCommand('cdp_call', {
             method,
-            params: JSON.stringify(params)
+            params  // send as object so native side can serialize to CDP JSON correctly
         });
     }
 

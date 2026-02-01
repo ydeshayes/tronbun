@@ -7,19 +7,24 @@
 #include "platform_cdp.h"
 #include <windows.h>
 #include <webview2.h>
-#include <wrl.h>
+// #include <wrl.h>
+// #include <wrl/event.h>
 #include <string>
 #include <map>
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <cstdio>
 
-using namespace Microsoft::WRL;
+#include "webview2_utils.h"
+
+// using namespace Microsoft::WRL;
 
 // Global state for CDP
 struct CDPState {
     ICoreWebView2* webview = nullptr;
-    std::map<int, ComPtr<ICoreWebView2DevToolsProtocolEventReceiver>> eventReceivers;
+    // std::map<int, ComPtr<ICoreWebView2DevToolsProtocolEventReceiver>> eventReceivers;
+    std::map<int, ICoreWebView2DevToolsProtocolEventReceiver*> eventReceivers;
     std::map<int, EventRegistrationToken> eventTokens;
     std::atomic<int> nextSubscriptionId{1};
     std::mutex mutex;
@@ -72,6 +77,10 @@ void platform_cdp_cleanup(void* webview_window) {
     std::lock_guard<std::mutex> lock(g_states_mutex);
     auto it = g_cdp_states.find(webview_window);
     if (it != g_cdp_states.end()) {
+        // Release receivers
+        for (auto& pair : it->second->eventReceivers) {
+            if (pair.second) pair.second->Release();
+        }
         delete it->second;
         g_cdp_states.erase(it);
     }
@@ -97,17 +106,24 @@ void platform_cdp_call(void* webview_window, const char* method, const char* par
     HRESULT hr = state->webview->CallDevToolsProtocolMethod(
         wmethod.c_str(),
         wparams.c_str(),
-        Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+        new CallDevToolsProtocolMethodHandler(
             [cb, ud](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
                 if (FAILED(errorCode)) {
-                    cb(nullptr, "CDP call failed", ud);
+                    std::string resultJson = wstring_to_string(returnObjectAsJson ? returnObjectAsJson : L"");
+                    char errMsg[512];
+                    if (resultJson.empty()) {
+                        snprintf(errMsg, sizeof(errMsg), "CDP call failed (0x%08lX)", (unsigned long)errorCode);
+                    } else {
+                        snprintf(errMsg, sizeof(errMsg), "CDP call failed (0x%08lX): %.400s", (unsigned long)errorCode, resultJson.c_str());
+                    }
+                    cb(nullptr, errMsg, ud);
                 } else {
                     std::string result = wstring_to_string(returnObjectAsJson ? returnObjectAsJson : L"{}");
                     cb(result.c_str(), nullptr, ud);
                 }
                 return S_OK;
             }
-        ).Get()
+        )
     );
 
     if (FAILED(hr)) {
@@ -125,7 +141,7 @@ int platform_cdp_subscribe(void* webview_window, const char* event_name,
     std::wstring wevent = string_to_wstring(event_name);
     std::string event_copy = event_name;
 
-    ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> receiver;
+    ICoreWebView2DevToolsProtocolEventReceiver* receiver = nullptr;
     HRESULT hr = state->webview->GetDevToolsProtocolEventReceiver(wevent.c_str(), &receiver);
     if (FAILED(hr) || !receiver) return -1;
 
@@ -135,7 +151,7 @@ int platform_cdp_subscribe(void* webview_window, const char* event_name,
 
     EventRegistrationToken token;
     hr = receiver->add_DevToolsProtocolEventReceived(
-        Callback<ICoreWebView2DevToolsProtocolEventReceivedEventHandler>(
+        new DevToolsProtocolEventReceivedHandler(
             [cb, ud, event_copy](ICoreWebView2* sender, ICoreWebView2DevToolsProtocolEventReceivedEventArgs* args) -> HRESULT {
                 LPWSTR paramsJson = nullptr;
                 args->get_ParameterObjectAsJson(&paramsJson);
@@ -144,11 +160,14 @@ int platform_cdp_subscribe(void* webview_window, const char* event_name,
                 cb(event_copy.c_str(), params.c_str(), ud);
                 return S_OK;
             }
-        ).Get(),
+        ),
         &token
     );
 
-    if (FAILED(hr)) return -1;
+    if (FAILED(hr)) {
+        receiver->Release();
+        return -1;
+    }
 
     std::lock_guard<std::mutex> lock(state->mutex);
     state->eventReceivers[subscriptionId] = receiver;
@@ -167,6 +186,7 @@ void platform_cdp_unsubscribe(void* webview_window, int subscription_id) {
 
     if (receiverIt != state->eventReceivers.end() && tokenIt != state->eventTokens.end()) {
         receiverIt->second->remove_DevToolsProtocolEventReceived(tokenIt->second);
+        receiverIt->second->Release();
         state->eventReceivers.erase(receiverIt);
         state->eventTokens.erase(tokenIt);
     }
@@ -276,6 +296,12 @@ void platform_cdp_fail_request(void* webview_window, const char* request_id,
         "{\"requestId\":\"%s\",\"errorReason\":\"%s\"}",
         request_id ? request_id : "", reason ? reason : "Failed");
     platform_cdp_call(webview_window, "Fetch.failRequest", params, callback, user_data);
+}
+
+/** Return the ICoreWebView2* for a window (for screenshot etc.). Caller casts to ICoreWebView2*. */
+void* platform_cdp_get_webview2(void* webview_window) {
+    CDPState* state = get_cdp_state(webview_window, false);
+    return (state && state->webview) ? (void*)state->webview : nullptr;
 }
 
 } // extern "C"

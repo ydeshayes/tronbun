@@ -5,16 +5,16 @@
 #ifdef _WIN32
 
 #include "platform_screenshot.h"
+#include "platform_cdp.h"
 #include <windows.h>
 #include <webview2.h>
-#include <wrl.h>
 #include <shlwapi.h>
 #include <string>
 #include <vector>
 
-#pragma comment(lib, "shlwapi.lib")
+#include "webview2_utils.h"
 
-using namespace Microsoft::WRL;
+#pragma comment(lib, "shlwapi.lib")
 
 // Base64 encoding table
 static const char base64_chars[] =
@@ -45,31 +45,20 @@ struct ScreenshotContext {
     void* user_data;
 };
 
-// Helper to get ICoreWebView2 from window (WebView2 stores it in window user data)
-static ICoreWebView2* get_webview2_from_hwnd(HWND hwnd) {
-    // The webview library stores controller in GWLP_USERDATA
-    // We need to navigate through the window hierarchy to find the WebView2 widget
-    HWND child = FindWindowExW(hwnd, NULL, L"Chrome_WidgetWin_0", NULL);
-    if (!child) {
-        child = FindWindowExW(hwnd, NULL, L"Chrome_WidgetWin_1", NULL);
-    }
+// Forward declaration (defined below)
+extern "C" void platform_take_screenshot_webview2(ICoreWebView2* webview, screenshot_callback_t callback, void* user_data);
 
-    // For now, return NULL - we'll need to pass the webview2 handle directly
-    return nullptr;
-}
-
-extern "C" void platform_take_screenshot(void* webview_hwnd, screenshot_callback_t callback, void* user_data) {
+extern "C" void platform_take_screenshot(void* webview_window, screenshot_callback_t callback, void* user_data) {
     if (!callback) return;
 
-    // Note: For Windows, we need the ICoreWebView2 interface directly
-    // The webview library doesn't expose a clean way to get this from HWND
-    // This implementation assumes the caller passes the webview handle that can be cast
-
-    // For now, we'll document that this needs the WebView2 controller passed
-    // A proper implementation would require changes to how webview stores its handles
-
-    OutputDebugStringA("[Screenshot] Windows screenshot not yet fully implemented\n");
-    callback(NULL, 0, user_data);
+    // Get ICoreWebView2 from the same window->webview map used by CDP (set when WebView2 is created).
+    void* webview2 = platform_cdp_get_webview2(webview_window);
+    if (webview2) {
+        platform_take_screenshot_webview2(static_cast<ICoreWebView2*>(webview2), callback, user_data);
+    } else {
+        OutputDebugStringA("[Screenshot] No WebView2 for window (capture not ready or window not initialized)\n");
+        callback(NULL, 0, user_data);
+    }
 }
 
 // This version takes the ICoreWebView2 directly
@@ -95,7 +84,7 @@ extern "C" void platform_take_screenshot_webview2(ICoreWebView2* webview, screen
     hr = webview->CapturePreview(
         COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
         stream,
-        Callback<ICoreWebView2CapturePreviewCompletedHandler>(
+        new CapturePreviewHandler(
             [stream, ctx](HRESULT errorCode) -> HRESULT {
                 if (FAILED(errorCode)) {
                     OutputDebugStringA("[Screenshot] CapturePreview failed\n");
@@ -137,7 +126,7 @@ extern "C" void platform_take_screenshot_webview2(ICoreWebView2* webview, screen
                 delete ctx;
                 return S_OK;
             }
-        ).Get()
+        )
     );
 
     if (FAILED(hr)) {

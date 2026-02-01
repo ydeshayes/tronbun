@@ -19,9 +19,18 @@
 #include <wrl.h>
 #include <WebView2.h>
 
+#include <atomic>
+
 #include "platform_child_view.h"
+#include <webview/detail/platform/windows/webview2/loader.hh>
+#include "common/ipc_common.h"
+#include "cJSON.h"
 
 using namespace Microsoft::WRL;
+
+// Helper GUIDs for ChildWebView2ComHandler are defined in webview2.h
+// static const IID IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler = ...;
+// static const IID IID_ICoreWebView2CreateCoreWebView2ControllerCompletedHandler = ...;
 
 // Window class name for child view containers
 static const wchar_t* CHILD_VIEW_CLASS = L"TronbunChildView";
@@ -92,7 +101,8 @@ static void register_child_view_class() {
  */
 class ChildWebView2ComHandler
     : public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler,
-      public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler {
+      public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,
+      public ICoreWebView2WebMessageReceivedEventHandler {
 public:
     ChildWebView2ComHandler(child_view_data_t* data) : m_data(data), m_ref_count(1) {}
 
@@ -109,17 +119,22 @@ public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, LPVOID* ppv) {
         if (!ppv) return E_POINTER;
 
-        if (riid == __uuidof(ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler)) {
+        if (riid == IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler) {
             *ppv = static_cast<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler*>(this);
             AddRef();
             return S_OK;
         }
-        if (riid == __uuidof(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler)) {
+        if (riid == IID_ICoreWebView2CreateCoreWebView2ControllerCompletedHandler) {
             *ppv = static_cast<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler*>(this);
             AddRef();
             return S_OK;
         }
-        if (riid == __uuidof(IUnknown)) {
+        if (riid == IID_ICoreWebView2WebMessageReceivedEventHandler) {
+            *ppv = static_cast<ICoreWebView2WebMessageReceivedEventHandler*>(this);
+            AddRef();
+            return S_OK;
+        }
+        if (riid == IID_IUnknown) {
             *ppv = static_cast<IUnknown*>(static_cast<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler*>(this));
             AddRef();
             return S_OK;
@@ -160,6 +175,9 @@ public:
         settings->put_IsStatusBarEnabled(FALSE);
         settings->put_AreDefaultContextMenusEnabled(TRUE);
 
+        EventRegistrationToken token;
+        m_data->webview->add_WebMessageReceived(this, &token);
+
         // Resize to fill container
         RECT bounds;
         GetClientRect(m_data->hwnd, &bounds);
@@ -168,6 +186,47 @@ public:
 
         fprintf(stderr, "[ChildView] WebView2 ready\n");
         m_data->ready = 1;  // Ready
+        return S_OK;
+    }
+
+    // Message received callback
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) override {
+        (void)sender;
+        LPWSTR message = nullptr;
+        args->TryGetWebMessageAsString(&message);
+        if (message) {
+            // Convert to UTF-8
+            int len = WideCharToMultiByte(CP_UTF8, 0, message, -1, NULL, 0, NULL, NULL);
+            char* json = new char[len + 1];
+            WideCharToMultiByte(CP_UTF8, 0, message, -1, json, len, NULL, NULL);
+            json[len] = '\0';
+
+            // Escape JSON for inclusion in "req" array
+            cJSON* json_str = cJSON_CreateString(json);
+            char* escaped_json = cJSON_Print(json_str);
+            
+            // Format as ipc:call event for Webview.ts
+            // Webview.ts expects: ipc:call [channel, json_string_payload]
+            // We follow the output format of handle_invoke_callback in webview_main.c
+            // printf("{\"type\":\"ipc:call\",\"id\":\"%s\",\"seq\":\"%s\",\"req\":%s}\n", data->callback_id, id, req);
+            
+            // But we don't have a callback ID or sequence here in the native wrapper logic easily accessible 
+            // without parsing the JSON first.
+            // However, Webview.ts handleSpecificResponse parses the "req" field.
+            // const payload = JSON.parse(response.req[1]);
+            
+            // So we need to construct a response where "req" is an array: ["", payload_string]
+            // The payload_string is what we received (which contains type, channel, data from JS)
+            
+            printf("{\"type\":\"ipc:call\",\"req\":[\"\", %s]}\n", escaped_json);
+            fflush(stdout);
+
+            free(escaped_json); // cJSON_Print allocates
+            cJSON_Delete(json_str);
+            
+            delete[] json;
+            CoTaskMemFree(message);
+        }
         return S_OK;
     }
 
@@ -190,7 +249,11 @@ void* platform_create_child_view(void* parent_window, int debug, child_view_boun
 
     // Allocate child view data
     child_view_data_t* data = new child_view_data_t();
-    memset(data, 0, sizeof(child_view_data_t));
+    //memset(data, 0, sizeof(child_view_data_t)); // Unsafe for ComPtr
+    data->hwnd = NULL;
+    data->ready = 0;
+    data->view_id[0] = '\0';
+
     data->debug = debug;
 
     // Create child window
@@ -198,7 +261,7 @@ void* platform_create_child_view(void* parent_window, int debug, child_view_boun
         0,
         CHILD_VIEW_CLASS,
         NULL,
-        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         bounds.x, bounds.y, bounds.width, bounds.height,
         parentHwnd,
         NULL,
@@ -212,6 +275,8 @@ void* platform_create_child_view(void* parent_window, int debug, child_view_boun
         return NULL;
     }
 
+    SetWindowPos(data->hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
     // Store data pointer in window
     SetWindowLongPtr(data->hwnd, GWLP_USERDATA, (LONG_PTR)data);
 
@@ -221,10 +286,10 @@ void* platform_create_child_view(void* parent_window, int debug, child_view_boun
     wchar_t userDataFolder[MAX_PATH];
     PathCombineW(userDataFolder, dataPath, L"Tronbun\\ChildViews");
 
-    // Create WebView2 environment
+    // Create WebView2 environment using loader
     ChildWebView2ComHandler* handler = new ChildWebView2ComHandler(data);
 
-    HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
+    HRESULT hr = webview::detail::mswebview2::loader().create_environment_with_options(
         nullptr,
         userDataFolder,
         nullptr,
@@ -387,7 +452,9 @@ void platform_init_child_ipc(void* child_view, const char* view_id) {
         "        });"
         "        console.log('Child invoke:', request);"
         "        window.chrome.webview.postMessage(request);"
-        "        resolve();"
+        "        console.log('Child invoke:', request);"
+        "        window.chrome.webview.postMessage(request);"
+        //"        resolve();" // Do not resolve immediately, wait for response via bunwebview_receive
         "      });"
         "    },"
         "    send: function(channel, data) {"

@@ -70,6 +70,7 @@ This file was read from disk and uploaded via automation.`);
                 }
                 h1 { color: #333; margin-bottom: 20px; }
                 .file-input-wrapper {
+                    position: relative;
                     border: 2px dashed #ccc;
                     border-radius: 8px;
                     padding: 40px;
@@ -80,8 +81,14 @@ This file was read from disk and uploaded via automation.`);
                 .file-input-wrapper:hover {
                     border-color: #007bff;
                 }
+                /* Cover drop zone so programmatic drop lands on input; label stays visible underneath */
                 input[type="file"] {
-                    display: none;
+                    position: absolute;
+                    inset: 0;
+                    width: 100%;
+                    height: 100%;
+                    opacity: 0;
+                    cursor: pointer;
                 }
                 .file-label {
                     cursor: pointer;
@@ -131,6 +138,10 @@ This file was read from disk and uploaded via automation.`);
                     <p><strong>File Name:</strong> <span id="fileName" class="file-name"></span></p>
                     <p><strong>File Size:</strong> <span id="fileSize" class="file-size"></span></p>
                     <p><strong>File Type:</strong> <span id="fileType" class="file-type"></span></p>
+                    <div id="imagePreviewSection" style="display: none; margin-top: 15px;">
+                        <p><strong>Image Preview (if content is present, image will show):</strong></p>
+                        <img id="imagePreview" alt="Preview" style="max-width: 100%; max-height: 200px; border: 1px solid #ccc; border-radius: 4px;">
+                    </div>
                     <div id="contentSection" style="display: none;">
                         <p><strong>Content Preview:</strong></p>
                         <div id="fileContent" class="file-content"></div>
@@ -149,6 +160,25 @@ This file was read from disk and uploaded via automation.`);
                         document.getElementById('fileName').textContent = file.name;
                         document.getElementById('fileSize').textContent = formatSize(file.size);
                         document.getElementById('fileType').textContent = file.type || 'unknown';
+
+                        // Show image preview for image files (checks if content is actually present)
+                        const imagePreviewSection = document.getElementById('imagePreviewSection');
+                        const imagePreview = document.getElementById('imagePreview');
+                        if (file.type.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(file.name)) {
+                            imagePreviewSection.style.display = 'block';
+                            const reader = new FileReader();
+                            reader.onload = function(e) {
+                                imagePreview.src = e.target.result;
+                            };
+                            reader.onerror = function() {
+                                imagePreview.src = '';
+                                imagePreview.alt = 'Failed to read image (file may be empty)';
+                            };
+                            reader.readAsDataURL(file);
+                        } else {
+                            imagePreviewSection.style.display = 'none';
+                            imagePreview.src = '';
+                        }
 
                         // Read and display content for text files
                         if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.json')) {

@@ -11,7 +11,7 @@
     "compile": "tronbun compile"
   },
   "dependencies": {
-    "tronbun": "../.."
+    "tronbun": "file:../.."
   },
   "devDependencies": {
     "@types/bun": "latest",

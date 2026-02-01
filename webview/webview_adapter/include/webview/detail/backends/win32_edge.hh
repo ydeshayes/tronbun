@@ -84,6 +84,8 @@
 extern "C" int tronbun_register_url_scheme_win(void* webview, void* environment);
 #endif
 
+extern "C" void platform_cdp_set_webview2(void* webview_window, ICoreWebView2* webview);
+
 namespace webview {
 namespace detail {
 
@@ -619,7 +621,7 @@ private:
       });
       RegisterClassExW(&wc);
 
-      CreateWindowW(L"webview", L"", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+      CreateWindowW(L"webview", L"", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT,
                     CW_USEDEFAULT, 0, 0, nullptr, nullptr, hInstance, this);
       if (!m_window) {
         throw exception{WEBVIEW_ERROR_INVALID_STATE, "Window is null"};
@@ -670,11 +672,12 @@ private:
       return 0;
     });
     RegisterClassExW(&widget_wc);
-    CreateWindowExW(WS_EX_CONTROLPARENT, L"webview_widget", nullptr, WS_CHILD,
+    CreateWindowExW(WS_EX_CONTROLPARENT, L"webview_widget", nullptr, WS_CHILD | WS_CLIPSIBLINGS,
                     0, 0, 0, 0, m_window, nullptr, hInstance, this);
     if (!m_widget) {
       throw exception{WEBVIEW_ERROR_INVALID_STATE, "Widget window is null"};
     }
+    SetWindowPos(m_widget, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
     // Create a message-only window for internal messaging.
     WNDCLASSEXW message_wc{};
@@ -769,6 +772,7 @@ private:
             env->AddRef();
             m_environment = env;
           }
+          platform_cdp_set_webview2(m_window, m_webview);
           flag.clear();
         });
 

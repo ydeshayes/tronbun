@@ -3,6 +3,7 @@ import type { WebViewOptions } from "./Webview";
 import { setupHotReload, isCompiledExecutable } from "./utils";
 import { ChildView, type ChildViewOptions, type ChildViewBounds, type AutoResizeConfig, type AutoResizeMode, type AnchorConfig } from "./ChildView";
 import { Protocol } from "./Protocol";
+import { resolve } from "path";
 
 export interface WindowOptions extends WebViewOptions {}
 
@@ -362,11 +363,11 @@ export class Window {
 
         this.webview.onIPC = this.onIPC.bind(this);
 
+        // Initialize protocol API first (automation setInputFiles uses it on Windows)
+        this.protocol = new Protocol(this.webview);
+
         // Initialize automation API
         this.automation = this.createAutomationAPI();
-
-        // Initialize protocol API
-        this.protocol = new Protocol(this.webview);
 
         // Initialize dialog API
         this.dialog = this.createDialogAPI();
@@ -413,6 +414,7 @@ export class Window {
 
     private createAutomationAPI(): WindowAutomation {
         const webview = this.webview;
+        const protocol = this.protocol;
 
         // Helper to extract element info from a DOM element
         const getElementInfoScript = `
@@ -609,19 +611,69 @@ export class Window {
             },
 
             // File upload - reads real files from disk and sets them on file input
+            // Windows: uses CDP DOM.setFileInputFiles (file paths); macOS: uses DataTransfer + eval
             async setInputFiles(selector: string, filePaths: string[]): Promise<void> {
                 const escapedSelector = selector.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
-                // Read files from disk and prepare them for injection
-                const fileDataArray: { name: string; type: string; base64: string }[] = [];
+                if (process.platform === "win32") {
+                    // Windows: WebView2 strips File content when assigning input.files (size 0).
+                    // Simulate a drop via CDP Input.dispatchDragEvent with file paths so the browser
+                    // populates the input from disk (same as a real drag-drop).
+                    for (const filePath of filePaths) {
+                        const file = Bun.file(filePath);
+                        if (!(await file.exists())) {
+                            throw new Error(`File not found: ${filePath}`);
+                        }
+                    }
+                    const absolutePaths = filePaths.map((p) => resolve(p));
 
+                    // Hidden file inputs have 0x0 getBoundingClientRect(); use parent (visible drop zone) for drop coordinates
+                    const centerJson = await webview.eval(
+                        `(function(){ var el = document.querySelector('${escapedSelector}'); if(!el) return 'null'; var target = el.parentElement || el; var r = target.getBoundingClientRect(); return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2}); })()`
+                    );
+                    const center = JSON.parse(centerJson ?? "null") as { x: number; y: number } | null;
+                    if (!center || typeof center.x !== "number" || typeof center.y !== "number") {
+                        throw new Error(`Element not found: ${selector}`);
+                    }
+
+                    const dragData = {
+                        files: absolutePaths,
+                        items: [] as { mimeType: string; data: string }[],
+                        dragOperationsMask: 1,
+                    };
+
+                    await protocol.call("Input.dispatchDragEvent", {
+                        type: "dragEnter",
+                        x: center.x,
+                        y: center.y,
+                        data: dragData,
+                        modifiers: 0,
+                    });
+                    await protocol.call("Input.dispatchDragEvent", {
+                        type: "dragOver",
+                        x: center.x,
+                        y: center.y,
+                        data: dragData,
+                        modifiers: 0,
+                    });
+                    await protocol.call("Input.dispatchDragEvent", {
+                        type: "drop",
+                        x: center.x,
+                        y: center.y,
+                        data: dragData,
+                        modifiers: 0,
+                    });
+                    return;
+                }
+
+                // macOS: DataTransfer + eval (works on WKWebView)
+                const fileDataArray: { name: string; type: string; base64: string }[] = [];
                 for (const filePath of filePaths) {
                     const file = Bun.file(filePath);
                     const exists = await file.exists();
                     if (!exists) {
                         throw new Error(`File not found: ${filePath}`);
                     }
-
                     const arrayBuffer = await file.arrayBuffer();
                     const uint8Array = new Uint8Array(arrayBuffer);
                     let binary = '';
@@ -629,44 +681,29 @@ export class Window {
                         binary += String.fromCharCode(uint8Array[i]);
                     }
                     const base64 = btoa(binary);
-
-                    // Get filename from path
                     const name = filePath.split('/').pop() || filePath.split('\\').pop() || 'file';
                     const type = file.type || 'application/octet-stream';
-
                     fileDataArray.push({ name, type, base64 });
                 }
 
-                // Inject files into the webview one by one to avoid large eval payloads
-                // First, clear any existing files and create a new DataTransfer
+                const escapeForJsString = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 await webview.eval(`(function() { window.__tronbun_dt = new DataTransfer(); return true; })()`);
-
-                // Add each file to the DataTransfer
                 for (const fileData of fileDataArray) {
-                    const escapedName = fileData.name.replace(/'/g, "\\'");
-                    const escapedType = fileData.type.replace(/'/g, "\\'");
-                    // Split base64 into chunks to avoid hitting eval limits
-                    const chunkSize = 32000; // Safe chunk size
-                    const chunks = [];
+                    const escapedName = escapeForJsString(fileData.name);
+                    const escapedType = escapeForJsString(fileData.type);
+                    const chunkSize = 8000;
+                    const chunks: string[] = [];
                     for (let i = 0; i < fileData.base64.length; i += chunkSize) {
-                        chunks.push(fileData.base64.slice(i, i + chunkSize));
+                        chunks.push(escapeForJsString(fileData.base64.slice(i, i + chunkSize)));
                     }
-
-                    // Build base64 string in webview
                     await webview.eval(`(function() { window.__tronbun_b64 = ''; return true; })()`);
                     for (const chunk of chunks) {
                         await webview.eval(`(function() { window.__tronbun_b64 += '${chunk}'; return true; })()`);
                     }
-
-                    // Create file from base64 and add to DataTransfer
                     await webview.eval(`(function() { var b = atob(window.__tronbun_b64); var a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); window.__tronbun_dt.items.add(new File([a], '${escapedName}', { type: '${escapedType}' })); return true; })()`);
                 }
-
-                // Set files on the input and dispatch change event
                 await webview.eval(`(function() { var el = document.querySelector('${escapedSelector}'); if (el) { el.files = window.__tronbun_dt.files; } return true; })()`);
                 await webview.eval(`(function() { var el = document.querySelector('${escapedSelector}'); if (el) { el.dispatchEvent(new Event('change', { bubbles: true })); } return true; })()`);
-
-                // Cleanup - must return a value
                 await webview.eval(`(function() { delete window.__tronbun_dt; delete window.__tronbun_b64; return true; })()`);
             },
 

@@ -232,6 +232,16 @@ void platform_cdp_fail_request(void* webview_window, const char* request_id,
                                const char* reason,
                                cdp_result_callback_t callback, void* user_data);
 
+#ifdef _WIN32
+/**
+ * Return the WebView2 instance for a window (Windows only).
+ * Used by screenshot and other features that need ICoreWebView2.
+ * @param webview_window Platform window handle
+ * @return Opaque pointer to ICoreWebView2, or NULL
+ */
+void* platform_cdp_get_webview2(void* webview_window);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
