@@ -4,8 +4,7 @@
     "": {
       "name": "test-options",
       "dependencies": {
-        "tronbun": "../..",
-        "tronbun": "../..",
+        "tronbun": "file:../..",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -50,7 +49,7 @@
 
     "@types/minimatch": ["@types/minimatch@3.0.5", "", {}, "sha512-Klz949h02Gz2uZCMGwDUSDS1YBlTdDDgbWHi+81l29tQALUtvz4rAYi5uoVhE5Lagoq6DeqAUlbrHvW/mXDgdQ=="],
 
-    "@types/node": ["@types/node@25.1.0", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-t7frlewr6+cbx+9Ohpl0NOTKXZNV9xHRmNOvql47BFJKcEG1CxtxlPEEe+gR9uhVWM4DwhnvTF110mIL4yP9RA=="],
+    "@types/node": ["@types/node@25.2.0", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-DZ8VwRFUNzuqJ5khrvwMXHmvPe+zGayJhr2CDNiKB1WBE1ST8Djl00D0IC4vvNmHMdj6DlbYRIaFE7WHjlDl5w=="],
 
     "@types/validator": ["@types/validator@13.15.10", "", {}, "sha512-T8L6i7wCuyoK8A/ZeLYt1+q0ty3Zb9+qbSSvrIVitzT3YjZqkTZ40IbRsPanlB4h1QB3JVL1SYCdR6ngtFYcuA=="],
 
@@ -253,8 +252,6 @@
     "supports-color": ["supports-color@7.2.0", "", { "dependencies": { "has-flag": "^4.0.0" } }, "sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw=="],
 
     "tagged-tag": ["tagged-tag@1.0.0", "", {}, "sha512-yEFYrVhod+hdNyx7g5Bnkkb0G6si8HJurOoOEgC8B/O0uXLHlaey/65KRv6cuWBNhBgHKAROVpc7QyYqE5gFng=="],
-
-    "tronbun": ["tronbun@file:../..", { "dependencies": { "bun": "^1.2.19" }, "devDependencies": { "@types/bun": "latest", "javascript-obfuscator": "^5.1.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "tronbun": "./cli/index.ts" } }],
 
     "tronbun": ["tronbun@file:../..", { "dependencies": { "bun": "^1.2.19" }, "devDependencies": { "@types/bun": "latest", "javascript-obfuscator": "^5.1.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "tronbun": "./cli/index.ts" } }],
 

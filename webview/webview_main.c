@@ -329,7 +329,9 @@ void execute_command_dispatch(webview_t w, void* arg) {
     } else if (strcmp(method, "navigate") == 0) {
         char url[4096];  // URLs can be long
         ipc_extract_param_string(params, "url", url, sizeof(url));
+        fprintf(stderr, "[WebView] Navigate command received: %s\n", url);
         result = webview_navigate(cmd->webview, url);
+        fprintf(stderr, "[WebView] Navigate result: %d\n", result);
         ipc_write_response(id, "true", NULL);
 
     } else if (strcmp(method, "set_html") == 0) {
@@ -756,14 +758,19 @@ void execute_command_dispatch(webview_t w, void* arg) {
         char* path = ipc_extract_param_string_alloc(params, "path");
         char* content = ipc_extract_param_string_alloc(params, "content");
 
+        fprintf(stderr, "[WebView] virtual_fs_register: path=%s, content_len=%zu\n", 
+                path ? path : "(null)", content ? strlen(content) : 0);
+
         if (path && content) {
             int vfs_result = virtual_fs_register_file(path, content, strlen(content));
+            fprintf(stderr, "[WebView] virtual_fs_register result: %d\n", vfs_result);
             if (vfs_result == 0) {
                 ipc_write_response(id, "true", NULL);
             } else {
                 ipc_write_response(id, NULL, "Failed to register file");
             }
         } else {
+            fprintf(stderr, "[WebView] virtual_fs_register: missing params!\n");
             ipc_write_response(id, NULL, "Missing path or content parameter");
         }
 
@@ -1462,7 +1469,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR lpCmdLine, int nC
 #else
 int main(void) {
 #endif
-    fprintf(stderr, "Starting WebView with stdin/stdout IPC...\n");
+    // Disable buffering for stderr to ensure immediate output
+    setvbuf(stderr, NULL, _IONBF, 0);
+    
+    fprintf(stderr, "[WebView] BUILD VERSION: 2026-02-03-DEBUG\n");
+    fprintf(stderr, "[WebView] Starting WebView with stdin/stdout IPC...\n");
+#ifdef TRONBUN_CUSTOM_SCHEME
+    fprintf(stderr, "[WebView] Custom scheme support: ENABLED\n");
+#else
+    fprintf(stderr, "[WebView] Custom scheme support: DISABLED\n");
+#endif
     
     // Create webview
     webview_t w = webview_create(1, NULL); // debug=1 for development

@@ -82,6 +82,7 @@
 
 #ifdef TRONBUN_CUSTOM_SCHEME
 extern "C" int tronbun_register_url_scheme_win(void* webview, void* environment);
+extern "C" ICoreWebView2EnvironmentOptions* tronbun_create_environment_options(void);
 #endif
 
 extern "C" void platform_cdp_set_webview2(void* webview_window, ICoreWebView2* webview);
@@ -144,6 +145,7 @@ public:
     return E_NOINTERFACE;
   }
   HRESULT STDMETHODCALLTYPE Invoke(HRESULT res, ICoreWebView2Environment *env) {
+    fprintf(stderr, "[WebView] Environment Invoke: res=0x%08lX, env=%p\n", res, (void*)env);
     if (SUCCEEDED(res)) {
       // Store the environment for later use (e.g., custom URL scheme handler)
       if (env) {
@@ -151,10 +153,12 @@ public:
         m_env = env;
       }
       res = env->CreateCoreWebView2Controller(m_window, this);
+      fprintf(stderr, "[WebView] CreateCoreWebView2Controller: res=0x%08lX\n", res);
       if (SUCCEEDED(res)) {
         return S_OK;
       }
     }
+    fprintf(stderr, "[WebView] Retrying environment creation...\n");
     try_create_environment();
     return S_OK;
   }
@@ -777,8 +781,22 @@ private:
         });
 
     m_com_handler->set_attempt_handler([&] {
+#ifdef TRONBUN_CUSTOM_SCHEME
+      // Create environment options with tronbun:// custom scheme registered
+      static ICoreWebView2EnvironmentOptions* envOptions = nullptr;
+      if (!envOptions) {
+        envOptions = tronbun_create_environment_options();
+      }
+      HRESULT hr = m_webview2_loader.create_environment_with_options(
+          nullptr, userDataFolder, envOptions, m_com_handler);
+      if (FAILED(hr)) {
+        fprintf(stderr, "[WebView] create_environment_with_options failed: 0x%08lX\n", hr);
+      }
+      return hr;
+#else
       return m_webview2_loader.create_environment_with_options(
           nullptr, userDataFolder, nullptr, m_com_handler);
+#endif
     });
     m_com_handler->try_create_environment();
 
@@ -819,9 +837,15 @@ private:
 }");
 #ifdef TRONBUN_CUSTOM_SCHEME
     // Register the tronbun:// URL scheme handler
+    fprintf(stderr, "[WebView] TRONBUN_CUSTOM_SCHEME is defined, registering URL scheme handler...\n");
     if (m_webview && m_environment) {
-      tronbun_register_url_scheme_win(m_webview, m_environment);
+      int scheme_result = tronbun_register_url_scheme_win(m_webview, m_environment);
+      fprintf(stderr, "[WebView] URL scheme registration result: %d\n", scheme_result);
+    } else {
+      fprintf(stderr, "[WebView] ERROR: m_webview or m_environment is null!\n");
     }
+#else
+    fprintf(stderr, "[WebView] TRONBUN_CUSTOM_SCHEME is NOT defined!\n");
 #endif
     resize_webview();
     m_controller->put_IsVisible(TRUE);

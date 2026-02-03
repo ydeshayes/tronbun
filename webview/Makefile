@@ -82,7 +82,6 @@ ifeq ($(OS),Windows_NT)
     # Windows with WebView2
     CFLAGS += -DWEBVIEW_EDGE=1 -DUNICODE -D_UNICODE -DTRONBUN_CUSTOM_SCHEME=1
     CXXFLAGS += -DUNICODE -D_UNICODE -DTRONBUN_CUSTOM_SCHEME=1
-    LDFLAGS += -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32 -luuid
     WEBVIEW_IMPL = webview_adapter/src/webview.cc
     PLATFORM_IMPL = platform/platform_window_win.c
     CHILD_VIEW_IMPL = platform/platform_child_view_win.cpp
@@ -90,18 +89,22 @@ ifeq ($(OS),Windows_NT)
     FILE_DIALOG_IMPL = platform/platform_file_dialog_win.cpp
     MENU_IMPL = platform/platform_menu_win.cpp
     TRAY_PLATFORM_IMPL = platform/platform_tray_win.c
-    VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_win.cpp
+    VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_win.cpp platform/webview2_env_options.cpp
     CDP_IMPL = platform/platform_cdp_win.cpp
     TARGET_EXT = _win.exe
-
-    # Static linking flags for Windows
-    LDFLAGS += -lwinpthread
+    
+    # Default to full static linking on Windows to avoid DLL dependencies
+    CFLAGS += -static
+    CXXFLAGS += -static
+    LDFLAGS += -static -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32 -luuid -lwinpthread
+    
+    # Partial static linking flags (only libgcc/libstdc++)
     STATIC_CXXFLAGS = $(CXXFLAGS) -static-libgcc -static-libstdc++
     STATIC_LDFLAGS = $(LDFLAGS) -static-libgcc -static-libstdc++
-
-    # Full static linking (if available)
-    FULL_STATIC_CXXFLAGS = $(CXXFLAGS) -static
-    FULL_STATIC_LDFLAGS = -static -ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion -ldwmapi -lcomctl32 -lwinpthread
+    
+    # Full static linking (same as default now)
+    FULL_STATIC_CXXFLAGS = $(CXXFLAGS)
+    FULL_STATIC_LDFLAGS = $(LDFLAGS)
 endif
 
 TARGETS = $(BUILD_DIR)/webview_main$(TARGET_EXT) $(BUILD_DIR)/tray_main$(TARGET_EXT)
@@ -187,10 +190,10 @@ clean:
 
 help:
 	@echo "Available targets:"
-	@echo "  all              - Build regular webview executable"
+	@echo "  all              - Build webview executable (static on Windows, no DLLs needed)"
 
-	@echo "  static           - Build webview with static linking (Windows only)"
-	@echo "  full-static      - Build webview with full static linking (Windows only)"
+	@echo "  static           - Build webview with partial static linking (Windows only)"
+	@echo "  full-static      - Build webview with full static linking (Windows only, same as default)"
 	@echo "  webview_main     - Build the main webview program"
 	@echo "  webview_main_static - Build the main webview program with static linking"
 	@echo "  webview_main_full_static - Build the main webview program with full static linking"

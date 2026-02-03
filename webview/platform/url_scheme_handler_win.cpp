@@ -73,9 +73,12 @@ public:
         ICoreWebView2* sender,
         ICoreWebView2WebResourceRequestedEventArgs* args) override {
 
+        fprintf(stderr, "[TronbunScheme] WebResourceRequested handler invoked\n");
+
         ICoreWebView2WebResourceRequest* request = nullptr;
         HRESULT hr = args->get_Request(&request);
         if (FAILED(hr) || !request) {
+            fprintf(stderr, "[TronbunScheme] Failed to get request\n");
             return hr;
         }
 
@@ -84,6 +87,7 @@ public:
         request->Release();
 
         if (FAILED(hr) || !uriWide) {
+            fprintf(stderr, "[TronbunScheme] Failed to get URI\n");
             return hr;
         }
 
@@ -93,14 +97,18 @@ public:
         WideCharToMultiByte(CP_UTF8, 0, uriWide, -1, &uri[0], len, nullptr, nullptr);
         CoTaskMemFree(uriWide);
 
-        // Check if this is a tronbun:// URL
-        const char* prefix = "tronbun://app/";
-        const char* prefix_alt = "tronbun://app";
+        fprintf(stderr, "[TronbunScheme] Request URI: %s\n", uri.c_str());
+
+        // Check if this is a tronbun URL (either tronbun:// or http://tronbun.localhost/)
+        const char* prefix1 = "tronbun://app/";
+        const char* prefix1_alt = "tronbun://app";
+        const char* prefix2 = "http://tronbun.localhost/";
+        const char* prefix2_alt = "http://tronbun.localhost";
 
         std::string path;
-        if (uri.find(prefix) == 0) {
-            path = uri.substr(strlen(prefix));
-        } else if (uri == prefix_alt || uri == "tronbun://app") {
+        if (uri.find(prefix1) == 0) {
+            path = uri.substr(strlen(prefix1));
+        } else if (uri == prefix1_alt || uri == "tronbun://app") {
             path = "";
         } else if (uri.find("tronbun://") == 0) {
             // Handle other tronbun:// URLs
@@ -111,6 +119,10 @@ public:
             } else if (path == "app") {
                 path = "";
             }
+        } else if (uri.find(prefix2) == 0) {
+            path = uri.substr(strlen(prefix2));
+        } else if (uri == prefix2_alt) {
+            path = "";
         } else {
             // Not a tronbun URL, let it pass through
             return S_OK;
@@ -121,11 +133,14 @@ public:
             path = "index.html";
         }
 
+        fprintf(stderr, "[TronbunScheme] Looking up path: %s\n", path.c_str());
+
         // Look up file in virtual file system
         const char* content = nullptr;
         size_t contentLength = 0;
 
         if (virtual_fs_get_file(path.c_str(), &content, &contentLength) == 0) {
+            fprintf(stderr, "[TronbunScheme] Found file: %s (%zu bytes)\n", path.c_str(), contentLength);
             // File found - create response
             const char* mimeType = virtual_fs_get_mime_type(path.c_str());
 
@@ -201,26 +216,42 @@ private:
 static TronbunWebResourceHandler* g_handler = nullptr;
 
 extern "C" int tronbun_register_url_scheme_win(void* webviewPtr, void* environmentPtr) {
+    fprintf(stderr, "[TronbunScheme] Registering URL scheme handler...\n");
+    
     ICoreWebView2* webview = static_cast<ICoreWebView2*>(webviewPtr);
     ICoreWebView2Environment* environment = static_cast<ICoreWebView2Environment*>(environmentPtr);
 
     if (!webview || !environment) {
-        OutputDebugStringA("[TronbunScheme] Error: webview or environment is null\n");
+        fprintf(stderr, "[TronbunScheme] Error: webview or environment is null\n");
         return -1;
     }
 
     // Initialize virtual file system
     virtual_fs_init();
+    fprintf(stderr, "[TronbunScheme] Virtual FS initialized\n");
 
-    // Add filter for tronbun:// URLs
+    // Add filter for tronbun:// URLs (for legacy support)
     HRESULT hr = webview->AddWebResourceRequestedFilter(
         L"tronbun://*",
         COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
 
     if (FAILED(hr)) {
-        OutputDebugStringA("[TronbunScheme] Error: Failed to add WebResourceRequested filter\n");
+        fprintf(stderr, "[TronbunScheme] Warning: Failed to add filter for tronbun://* (hr=0x%lx)\n", hr);
+        // Continue anyway - the http filter is more important
+    } else {
+        fprintf(stderr, "[TronbunScheme] Added filter for tronbun://*\n");
+    }
+
+    // Add filter for http://tronbun.localhost/* (this works for navigation)
+    hr = webview->AddWebResourceRequestedFilter(
+        L"http://tronbun.localhost/*",
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+
+    if (FAILED(hr)) {
+        fprintf(stderr, "[TronbunScheme] Error: Failed to add filter for http://tronbun.localhost/* (hr=0x%lx)\n", hr);
         return -2;
     }
+    fprintf(stderr, "[TronbunScheme] Added filter for http://tronbun.localhost/*\n");
 
     // Create and register the handler
     g_handler = new TronbunWebResourceHandler(environment);
@@ -229,13 +260,13 @@ extern "C" int tronbun_register_url_scheme_win(void* webviewPtr, void* environme
     hr = webview->add_WebResourceRequested(g_handler, &token);
 
     if (FAILED(hr)) {
-        OutputDebugStringA("[TronbunScheme] Error: Failed to register WebResourceRequested handler\n");
+        fprintf(stderr, "[TronbunScheme] Error: Failed to register WebResourceRequested handler (hr=0x%lx)\n", hr);
         g_handler->Release();
         g_handler = nullptr;
         return -3;
     }
 
-    OutputDebugStringA("[TronbunScheme] Registered tronbun:// URL scheme handler for Windows\n");
+    fprintf(stderr, "[TronbunScheme] Registered tronbun:// URL scheme handler for Windows\n");
     return 0;
 }
 

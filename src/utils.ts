@@ -7,9 +7,28 @@ import type { TronbunConfig } from "../cli/types.js";
 
 export function isCompiledExecutable() {
     // Check if we're running from a compiled executable
-    // When compiled, import.meta.url will contain '$bunfs' (Bun's virtual filesystem)
-    // and we're not running directly from bun
-    return import.meta.url.includes('$bunfs') || process.argv[1]?.endsWith('.exe');
+    // When compiled, import.meta.url will contain:
+    // - '$bunfs' on macOS/Linux (Bun's virtual filesystem)
+    // - 'B:/~BUN/' or similar on Windows (Bun's Windows virtual mount)
+    // Also check if the executable path ends with .exe (Windows executable)
+    const url = import.meta.url;
+    
+    // Check for Bun's virtual filesystem indicators
+    if (url.includes('$bunfs') || url.includes('/~BUN/') || url.includes('\\~BUN\\') || url.includes(':~BUN')) {
+        return true;
+    }
+    
+    // Check if running from a Windows .exe
+    if (process.argv[1]?.endsWith('.exe')) {
+        return true;
+    }
+    
+    // Check process.execPath for .exe (more reliable on Windows)
+    if (process.execPath?.endsWith('.exe') && !process.execPath.includes('bun.exe')) {
+        return true;
+    }
+    
+    return false;
 }
 
 function loadProjectConfig(projectRoot?: string): TronbunConfig {
