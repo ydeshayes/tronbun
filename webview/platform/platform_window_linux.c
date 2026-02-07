@@ -161,4 +161,8 @@ void platform_window_show(void *native_window) {
     }
 }
 
+void platform_window_activate_app(void) {
+    // No-op on Linux - activation is handled automatically
+}
+
 #endif // __linux__

@@ -130,6 +130,15 @@ void platform_window_register_resize_callback(void *native_window, platform_wind
  */
 void platform_window_get_size(void *native_window, int *width, int *height);
 
+/**
+ * Activate the application and bring window to front.
+ * On macOS, this ensures the app is activated even when webview_main
+ * runs as a subprocess inside a .app bundle (where automatic activation
+ * is skipped by the webview library).
+ * No-op on other platforms.
+ */
+void platform_window_activate_app(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1627,6 +1627,11 @@ int main(void) {
     
     webview_bind(w, "__bunwebview_invoke", handle_invoke_callback, invoke_callback_data);
 
+    // Ensure the app is activated and window is visible.
+    // When webview_main runs as a subprocess inside a .app bundle, the webview
+    // library skips activation (it thinks it's a bundled app). We force it here.
+    platform_window_activate_app();
+
     // Register resize callback to emit events when window is resized
     void* main_window = webview_get_window(w);
     if (main_window) {

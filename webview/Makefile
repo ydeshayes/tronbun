@@ -74,7 +74,7 @@ ifeq ($(UNAME_S),Darwin)
     CDP_IMPL = platform/platform_cdp_macos.mm
     FILE_DIALOG_IMPL = platform/platform_file_dialog_macos.mm
     MENU_IMPL = platform/platform_menu_macos.mm
-    CONTEXT_MENU_IMPL =
+    CONTEXT_MENU_IMPL = platform/platform_context_menu_macos.mm
     TRAY_PLATFORM_IMPL = platform/platform_tray_macos.mm
     VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_macos.mm
     TARGET_EXT =

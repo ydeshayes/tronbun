@@ -283,3 +283,45 @@ void platform_window_get_size(void *native_window, int *width, int *height) {
         if (height) *height = 0;
     }
 }
+
+void platform_window_activate_app(void) {
+    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+    [NSApp activateIgnoringOtherApps:YES];
+
+    // Set the dock icon from the parent .app bundle asynchronously so it
+    // doesn't interfere with WebKit's initialization sequence.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSBundle *appBundle = nil;
+        NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+
+        if ([bundlePath hasSuffix:@".app"]) {
+            appBundle = [NSBundle mainBundle];
+        } else {
+            // Walk up from the executable path to find the .app bundle
+            NSString *execPath = [[NSProcessInfo processInfo] arguments].firstObject;
+            NSRange appRange = [execPath rangeOfString:@".app/"];
+            if (appRange.location != NSNotFound) {
+                NSString *appPath = [execPath substringToIndex:appRange.location + 4];
+                appBundle = [NSBundle bundleWithPath:appPath];
+            }
+        }
+
+        if (!appBundle) return;
+
+        NSString *iconFile = [appBundle objectForInfoDictionaryKey:@"CFBundleIconFile"];
+        if (!iconFile) return;
+
+        NSString *iconPath = [appBundle pathForResource:iconFile ofType:nil];
+        if (!iconPath) {
+            iconPath = [appBundle pathForResource:iconFile ofType:@"icns"];
+        }
+        if (!iconPath) return;
+
+        NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
+        if (icon) {
+            [NSApp setApplicationIconImage:icon];
+            [icon release];
+            fprintf(stderr, "Dock icon set from: %s\n", [iconPath UTF8String]);
+        }
+    });
+}
