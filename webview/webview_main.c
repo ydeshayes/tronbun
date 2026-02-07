@@ -5,6 +5,7 @@
 #include "platform/platform_cdp.h"
 #include "platform/platform_file_dialog.h"
 #include "platform/platform_menu.h"
+#include "platform/platform_context_menu.h"
 #include "common/ipc_common.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -184,6 +185,7 @@ void screenshot_callback(const char* base64_data, size_t data_length, void* user
 void file_dialog_callback(const char* paths_json, void* user_data);
 void cdp_result_callback(const char* result, const char* error, void* user_data);
 void menu_click_callback(const char* menu_id, void* user_data);
+void context_menu_click_callback(const char* menu_id, void* user_data);
 void window_resize_callback(int width, int height, void* user_data);
 
 // Screenshot callback implementation
@@ -250,6 +252,17 @@ void menu_click_callback(const char* menu_id, void* user_data) {
     char event_data[512];
     snprintf(event_data, sizeof(event_data), "{\"menuId\":\"%s\"}", menu_id);
     ipc_write_event("menu_click", event_data);
+}
+
+// Context menu click callback implementation
+void context_menu_click_callback(const char* menu_id, void* user_data) {
+    (void)user_data;  // Unused
+    if (!menu_id) return;
+
+    // Emit context menu click event to the TypeScript layer
+    char event_data[512];
+    snprintf(event_data, sizeof(event_data), "{\"menuId\":\"%s\"}", menu_id);
+    ipc_write_event("context_menu_click", event_data);
 }
 
 // Window resize callback implementation
@@ -1389,6 +1402,61 @@ void execute_command_dispatch(webview_t w, void* arg) {
         }
 
         if (items_json) ipc_free_string(items_json);
+
+    // ========================================================================
+    // Context Menu (Right-Click Menu) Commands
+    // ========================================================================
+
+    } else if (strcmp(method, "set_context_menu") == 0) {
+        // Set the right-click context menu for the webview
+        char* items_json = ipc_extract_param_json_alloc(params, "items");
+
+        void* window = webview_get_window(cmd->webview);
+
+        if (items_json && strlen(items_json) > 0) {
+            int ctx_result = platform_context_menu_set(window, (void*)cmd->webview,
+                items_json, context_menu_click_callback, NULL);
+            if (ctx_result == 0) {
+                ipc_write_response(id, "true", NULL);
+            } else {
+                ipc_write_response(id, NULL, "Failed to set context menu");
+            }
+        } else {
+            ipc_write_response(id, NULL, "Missing or invalid items JSON");
+        }
+
+        if (items_json) ipc_free_string(items_json);
+
+    } else if (strcmp(method, "remove_context_menu") == 0) {
+        // Remove the custom context menu and restore default behavior
+        void* window = webview_get_window(cmd->webview);
+
+        int ctx_result = platform_context_menu_remove(window, (void*)cmd->webview);
+        if (ctx_result == 0) {
+            ipc_write_response(id, "true", NULL);
+        } else {
+            ipc_write_response(id, NULL, "Failed to remove context menu");
+        }
+
+    } else if (strcmp(method, "update_context_menu_item") == 0) {
+        // Update a specific context menu item
+        char item_id[256] = {0};
+        char label[256] = {0};
+        int enabled = -1, checked = -1;
+
+        ipc_extract_param_string(params, "itemId", item_id, sizeof(item_id));
+        ipc_extract_param_string(params, "label", label, sizeof(label));
+        ipc_extract_param_int(params, "enabled", &enabled);
+        ipc_extract_param_int(params, "checked", &checked);
+
+        int ctx_result = platform_context_menu_update_item(item_id,
+            label[0] ? label : NULL, enabled, checked);
+
+        if (ctx_result == 0) {
+            ipc_write_response(id, "true", NULL);
+        } else {
+            ipc_write_response(id, NULL, "Failed to update context menu item");
+        }
 
     } else {
         ipc_write_response(id, NULL, "Unknown method");

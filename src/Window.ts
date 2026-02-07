@@ -321,6 +321,87 @@ export interface WindowMenu {
     offClick(itemId: string): void;
 }
 
+// ============================================================================
+// Context Menu API Types
+// ============================================================================
+
+/** Context menu item type */
+export type ContextMenuItemType = "normal" | "separator" | "checkbox" | "radio" | "submenu";
+
+/** Context menu item definition */
+export interface ContextMenuItem {
+    /** Unique identifier for callbacks */
+    id?: string;
+    /** Display label */
+    label?: string;
+    /** Item type - default: "normal" */
+    type?: ContextMenuItemType;
+    /** Whether item is enabled - default: true */
+    enabled?: boolean;
+    /** Whether item is checked (for checkbox/radio) */
+    checked?: boolean;
+    /** Keyboard shortcut hint (display only, e.g., "Ctrl+C") */
+    accelerator?: string;
+    /** Submenu items (if type is "submenu") */
+    submenu?: ContextMenuItem[];
+    /** Click handler (called when item is clicked) */
+    click?: () => void;
+}
+
+/**
+ * Context Menu API for native right-click menus in the webview.
+ *
+ * When set, right-clicking in the webview will show a native OS context menu
+ * instead of the default browser context menu.
+ */
+export interface WindowContext {
+    /**
+     * Set the right-click context menu for the webview.
+     * This replaces the default browser context menu with a native OS menu.
+     * @param items Array of context menu items
+     */
+    setContextMenu(items: ContextMenuItem[]): Promise<void>;
+
+    /**
+     * Remove the custom context menu and restore the default browser context menu.
+     */
+    removeContextMenu(): Promise<void>;
+
+    /**
+     * Update a specific context menu item by its ID.
+     * @param itemId The ID of the item to update
+     * @param updates Properties to update (label, enabled, checked)
+     */
+    updateItem(itemId: string, updates: Partial<Pick<ContextMenuItem, "label" | "enabled" | "checked">>): Promise<void>;
+
+    /**
+     * Enable or disable a context menu item.
+     * @param itemId The ID of the item
+     * @param enabled Whether to enable or disable
+     */
+    setItemEnabled(itemId: string, enabled: boolean): Promise<void>;
+
+    /**
+     * Set the checked state of a context menu item.
+     * @param itemId The ID of the item
+     * @param checked Whether to check or uncheck
+     */
+    setItemChecked(itemId: string, checked: boolean): Promise<void>;
+
+    /**
+     * Register a click handler for a context menu item.
+     * @param itemId The ID of the item
+     * @param handler Function to call when clicked
+     */
+    onClick(itemId: string, handler: () => void): void;
+
+    /**
+     * Remove a click handler for a context menu item.
+     * @param itemId The ID of the item
+     */
+    offClick(itemId: string): void;
+}
+
 export class Window {
     public readonly id: string;
     private webview: Webview;
@@ -354,8 +435,17 @@ export class Window {
      */
     public readonly menu: WindowMenu;
 
+    /**
+     * Context Menu API for native right-click menus.
+     * Replaces the default browser context menu with a native OS context menu.
+     */
+    public readonly context: WindowContext;
+
     /** Menu click handlers by item ID */
     private menuClickHandlers = new Map<string, () => void>();
+
+    /** Context menu click handlers by item ID */
+    private contextMenuClickHandlers = new Map<string, () => void>();
 
     constructor(options: WindowOptions = {}) {
         this.id = Date.now().toString() + Math.random().toString(36).substring(2);
@@ -375,10 +465,18 @@ export class Window {
         // Initialize menu API
         this.menu = this.createMenuAPI();
 
+        // Initialize context menu API
+        this.context = this.createContextMenuAPI();
+
         // Listen for events from native layer
         this.webview.onEvent = (type: string, data: any) => {
             if (type === "menu_click" && data?.menuId) {
                 const handler = this.menuClickHandlers.get(data.menuId);
+                if (handler) {
+                    handler();
+                }
+            } else if (type === "context_menu_click" && data?.menuId) {
+                const handler = this.contextMenuClickHandlers.get(data.menuId);
                 if (handler) {
                     handler();
                 }
@@ -1015,6 +1113,94 @@ export class Window {
 
             offClick(itemId: string): void {
                 menuClickHandlers.delete(itemId);
+            }
+        };
+    }
+
+    private createContextMenuAPI(): WindowContext {
+        const webview = this.webview;
+        const contextMenuClickHandlers = this.contextMenuClickHandlers;
+
+        // Helper to process context menu items and register click handlers
+        const processItems = (items: ContextMenuItem[]): any[] => {
+            return items.map(item => {
+                const result: any = {
+                    id: item.id || `ctx_${Date.now()}_${Math.random().toString(36).substring(2)}`,
+                    label: item.label || '',
+                    type: item.type || 'normal',
+                    enabled: item.enabled !== false,
+                    checked: item.checked || false
+                };
+
+                if (item.accelerator) {
+                    result.accelerator = item.accelerator;
+                }
+
+                if (item.submenu && item.submenu.length > 0) {
+                    result.type = 'submenu';
+                    result.submenu = processItems(item.submenu);
+                }
+
+                // Register click handler if provided
+                if (item.click) {
+                    contextMenuClickHandlers.set(result.id, item.click);
+                }
+
+                return result;
+            });
+        };
+
+        return {
+            async setContextMenu(items: ContextMenuItem[]): Promise<void> {
+                // Clear existing handlers
+                contextMenuClickHandlers.clear();
+
+                // Process items and register handlers
+                const processedItems = processItems(items);
+
+                await webview.sendCommand('set_context_menu', {
+                    items: processedItems
+                });
+            },
+
+            async removeContextMenu(): Promise<void> {
+                contextMenuClickHandlers.clear();
+                await webview.sendCommand('remove_context_menu', {});
+            },
+
+            async updateItem(itemId: string, updates: Partial<Pick<ContextMenuItem, "label" | "enabled" | "checked">>): Promise<void> {
+                await webview.sendCommand('update_context_menu_item', {
+                    itemId,
+                    label: updates.label || '',
+                    enabled: updates.enabled !== undefined ? (updates.enabled ? 1 : 0) : -1,
+                    checked: updates.checked !== undefined ? (updates.checked ? 1 : 0) : -1
+                });
+            },
+
+            async setItemEnabled(itemId: string, enabled: boolean): Promise<void> {
+                await webview.sendCommand('update_context_menu_item', {
+                    itemId,
+                    label: '',
+                    enabled: enabled ? 1 : 0,
+                    checked: -1
+                });
+            },
+
+            async setItemChecked(itemId: string, checked: boolean): Promise<void> {
+                await webview.sendCommand('update_context_menu_item', {
+                    itemId,
+                    label: '',
+                    enabled: -1,
+                    checked: checked ? 1 : 0
+                });
+            },
+
+            onClick(itemId: string, handler: () => void): void {
+                contextMenuClickHandlers.set(itemId, handler);
+            },
+
+            offClick(itemId: string): void {
+                contextMenuClickHandlers.delete(itemId);
             }
         };
     }

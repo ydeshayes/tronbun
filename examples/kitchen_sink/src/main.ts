@@ -410,3 +410,16 @@ import type { Menu, MenuItem, FileFilter, MessageBoxResult } from "tronbun";
 
   // Set up the application menu after window is ready
   await window.setupMenu();
+
+  await window.context.setContextMenu([
+    { id: "copy", label: "Copy", accelerator: "Ctrl+C", click: () => console.log("Copy!") },
+    { type: "separator" },
+    { id: "paste", label: "Paste", accelerator: "Ctrl+V" },
+    { id: "options", label: "Options", type: "submenu", submenu: [
+        { id: "opt1", label: "Dark Mode", type: "checkbox", checked: true },
+    ]},
+]);
+
+window.context.onClick("paste", () => console.log("Paste clicked"));
+
+// await window.context.removeContextMenu(); // restore default
