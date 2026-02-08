@@ -89,6 +89,14 @@ int platform_notification_close(const char* notification_id);
 int platform_notification_is_available(void);
 
 /**
+ * Set the icon used by the notification system's tray icon.
+ * Should be called after platform_notification_init().
+ * @param icon_path Path to the icon file (.ico on Windows)
+ * @return 0 on success, -1 on failure
+ */
+int platform_notification_set_icon(const char* icon_path);
+
+/**
  * Clean up notification system resources
  */
 void platform_notification_cleanup(void);

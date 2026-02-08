@@ -84,21 +84,32 @@ platform_tray_t* platform_tray_create(const char* icon_path, const char* tooltip
     tray->nid.cbSize = sizeof(NOTIFYICONDATA);
     tray->nid.hWnd = tray->hwnd;
     tray->nid.uID = TRAY_ID;
-    tray->nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    tray->nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_STATE;
     tray->nid.uCallbackMessage = WM_TRAY_MESSAGE;
     
     // Load icon
     if (icon_path) {
         WCHAR icon_path_w[MAX_PATH];
         MultiByteToWideChar(CP_UTF8, 0, icon_path, -1, icon_path_w, MAX_PATH);
-        tray->nid.hIcon = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+        tray->nid.hIcon = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_LOADFROMFILE);
         
         if (!tray->nid.hIcon) {
-            // Fallback to default icon
+            // Try default size as fallback (more forgiving with icon formats)
+            tray->nid.hIcon = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON,
+                0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+        }
+        
+        if (!tray->nid.hIcon) {
+            fprintf(stderr, "[Tray] Failed to load icon from: %s (error: %lu)\n", icon_path, GetLastError());
             tray->nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
         }
     } else {
+        // No icon path provided — start hidden so the user never sees
+        // the default icon. The tray becomes visible on first tray_set_icon.
         tray->nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+        tray->nid.dwState = NIS_HIDDEN;
+        tray->nid.dwStateMask = NIS_HIDDEN;
     }
     
     // Set tooltip
@@ -156,19 +167,35 @@ int platform_tray_set_icon(platform_tray_t* tray, const char* icon_path) {
     WCHAR icon_path_w[MAX_PATH];
     MultiByteToWideChar(CP_UTF8, 0, icon_path, -1, icon_path_w, MAX_PATH);
     
-    HICON new_icon = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
-    if (!new_icon) return -1;
+    // Try system small icon size first, then default size as fallback
+    HICON new_icon = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_LOADFROMFILE);
+    if (!new_icon) {
+        new_icon = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON,
+            0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+    }
     
-    HICON old_icon = tray->nid.hIcon;
-    tray->nid.hIcon = new_icon;
+    int load_failed = 0;
+    if (!new_icon) {
+        fprintf(stderr, "[Tray] Failed to load icon from: %s (error: %lu)\n", icon_path, GetLastError());
+        load_failed = 1;
+    } else {
+        HICON old_icon = tray->nid.hIcon;
+        tray->nid.hIcon = new_icon;
+        if (old_icon && old_icon != LoadIcon(NULL, IDI_APPLICATION)) {
+            DestroyIcon(old_icon);
+        }
+        fprintf(stderr, "[Tray] Icon loaded from: %s\n", icon_path);
+    }
+    
+    // Always make the tray visible (it starts hidden when no icon_path
+    // was provided at creation, waiting for the first tray_set_icon call)
+    tray->nid.dwState = 0;
+    tray->nid.dwStateMask = NIS_HIDDEN;
     
     BOOL result = Shell_NotifyIcon(NIM_MODIFY, &tray->nid);
     
-    if (old_icon && old_icon != LoadIcon(NULL, IDI_APPLICATION)) {
-        DestroyIcon(old_icon);
-    }
-    
-    return result ? 0 : -1;
+    return (result && !load_failed) ? 0 : -1;
 }
 
 int platform_tray_set_tooltip(platform_tray_t* tray, const char* tooltip) {

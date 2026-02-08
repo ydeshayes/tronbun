@@ -1,4 +1,5 @@
-import { resolveWebviewPath, getConfig } from "./utils.js";
+import { resolveWebviewPath, getConfig, resolveIconPath } from "./utils.js";
+import { existsSync } from "fs";
 import { BaseProcess, type BaseResponse } from "./BaseProcess.js";
 
 export interface TrayMenuItem {
@@ -61,7 +62,17 @@ export class Tray extends BaseProcess {
         // Give the tray process a moment to fully initialize
         await new Promise(resolve => setTimeout(resolve, 100));
         
-        await this.setIcon(options.icon);
+        // Validate icon path — if the provided file doesn't exist,
+        // fall back to the same auto-resolved icon used by Window
+        let iconPath = options.icon;
+        if (!existsSync(iconPath)) {
+            const resolved = resolveIconPath();
+            if (resolved) {
+                iconPath = resolved;
+            }
+        }
+        
+        await this.setIcon(iconPath);
         await new Promise(resolve => setTimeout(resolve, 50));
         
         if (options.tooltip) {

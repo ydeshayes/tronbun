@@ -255,4 +255,37 @@ void platform_window_activate_app(void) {
     // No-op on Windows - activation is handled automatically
 }
 
+int platform_window_set_icon(void *native_window, const char *icon_path) {
+    HWND hwnd = (HWND)native_window;
+    if (!hwnd || !icon_path || icon_path[0] == '\0') return -1;
+
+    WCHAR icon_path_w[MAX_PATH];
+    MultiByteToWideChar(CP_UTF8, 0, icon_path, -1, icon_path_w, MAX_PATH);
+
+    // Load large icon (for Alt-Tab, taskbar)
+    HICON hIconBig = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
+        LR_LOADFROMFILE);
+
+    // Load small icon (for title bar)
+    HICON hIconSmall = (HICON)LoadImageW(NULL, icon_path_w, IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+        LR_LOADFROMFILE);
+
+    if (!hIconBig && !hIconSmall) {
+        fprintf(stderr, "[Window] Failed to load icon from: %s\n", icon_path);
+        return -1;
+    }
+
+    if (hIconBig) {
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
+    }
+    if (hIconSmall) {
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
+    }
+
+    fprintf(stderr, "[Window] Icon set from: %s\n", icon_path);
+    return 0;
+}
+
 #endif // _WIN32

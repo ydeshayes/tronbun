@@ -301,6 +301,7 @@ void notification_event_callback(const char* notification_id, const char* event_
 }
 
 static int g_notification_initialized = 0;
+static char g_notification_icon_path[4096] = {0};
 
 // Bind callback handler
 void handle_bind_callback(const char *id, const char *req, void *arg) {
@@ -585,6 +586,17 @@ void execute_command_dispatch(webview_t w, void* arg) {
         void* window = webview_get_window(cmd->webview);
         platform_window_show(window);
         ipc_write_response(id, "true", NULL);
+
+    } else if (strcmp(method, "window_set_icon") == 0) {
+        void* window = webview_get_window(cmd->webview);
+        char icon_path[4096];
+        ipc_extract_param_string(params, "path", icon_path, sizeof(icon_path));
+        int icon_result = platform_window_set_icon(window, icon_path);
+        if (icon_result == 0) {
+            ipc_write_response(id, "true", NULL);
+        } else {
+            ipc_write_response(id, NULL, "Failed to set window icon");
+        }
 
     } else if (strcmp(method, "window_get_size") == 0) {
         void* window = webview_get_window(cmd->webview);
@@ -1493,6 +1505,10 @@ void execute_command_dispatch(webview_t w, void* arg) {
         // Lazy-init notification system on first use
         int notif_ready = g_notification_initialized;
         if (!notif_ready) {
+            // Store icon path BEFORE init so init uses it during NIM_ADD
+            if (g_notification_icon_path[0] != '\0') {
+                platform_notification_set_icon(g_notification_icon_path);
+            }
             int init_result = platform_notification_init(notification_event_callback, NULL);
             // Mark initialized regardless so subsequent calls use
             // platform_notification_show() with its re-check cooldown.
@@ -1579,6 +1595,10 @@ void execute_command_dispatch(webview_t w, void* arg) {
         ipc_write_response(id, result_str, NULL);
 
     } else if (strcmp(method, "notification_request_permission") == 0) {
+        // Store icon path BEFORE init so init uses it during NIM_ADD
+        if (g_notification_icon_path[0] != '\0') {
+            platform_notification_set_icon(g_notification_icon_path);
+        }
         int init_result = platform_notification_init(notification_event_callback, NULL);
         if (init_result == 0) {
             g_notification_initialized = 1;
@@ -1589,6 +1609,19 @@ void execute_command_dispatch(webview_t w, void* arg) {
         } else {
             ipc_write_response(id, "\"unavailable\"", NULL);
         }
+
+    } else if (strcmp(method, "notification_set_icon") == 0) {
+        char icon_path[4096];
+        ipc_extract_param_string(params, "path", icon_path, sizeof(icon_path));
+        // Always store the path so it can be applied after notification init
+        strncpy(g_notification_icon_path, icon_path, sizeof(g_notification_icon_path) - 1);
+        g_notification_icon_path[sizeof(g_notification_icon_path) - 1] = '\0';
+        // Apply immediately if notification system is already running
+        if (g_notification_initialized) {
+            platform_notification_set_icon(icon_path);
+        }
+        // Always succeed — the icon will be applied when notifications init
+        ipc_write_response(id, "true", NULL);
 
     } else {
         ipc_write_response(id, NULL, "Unknown method");
@@ -1627,7 +1660,8 @@ THREAD_RETURN stdin_monitor_thread(THREAD_ARG arg) {
                 // of dispatching to the main thread (which has a 1s timeout).
                 int is_notification_cmd = (
                     strstr(command_buffer, "\"notification_show\"") != NULL ||
-                    strstr(command_buffer, "\"notification_request_permission\"") != NULL
+                    strstr(command_buffer, "\"notification_request_permission\"") != NULL ||
+                    strstr(command_buffer, "\"notification_set_icon\"") != NULL
                 );
 
                 // Create command dispatch structure

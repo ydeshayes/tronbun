@@ -1,18 +1,23 @@
 /**
  * Native notification support via FFI (compiled mode — macOS and Windows).
  *
- * Loads the platform-specific shared library from next to the executable:
- * - macOS:   libnotification.dylib (UNUserNotificationCenter via Cocoa)
- * - Windows: libnotification.dll   (Shell_NotifyIconW balloon tips)
+ * Loads the platform-specific shared library:
+ * - macOS:   libnotification.dylib from Contents/MacOS/ (UNUserNotificationCenter via Cocoa)
+ * - Windows: libnotification.dll embedded in the executable at compile time,
+ *            extracted to a temp file at runtime and loaded via FFI.
  *
  * On macOS, the Bun process IS the CFBundleExecutable of the .app bundle,
  * so UNUserNotificationCenter uses the correct app identity automatically.
  *
- * On Windows, a background thread runs a message pump for balloon events.
+ * On Windows, the DLL is embedded as base64 in a global variable during
+ * compilation, eliminating the need for an external DLL file next to the exe.
+ * A background thread runs a message pump for balloon events.
  */
 
 import { dlopen, FFIType, JSCallback, CString, ptr, suffix } from "bun:ffi";
-import { resolve, dirname } from "path";
+import { resolve, dirname, join } from "path";
+import { writeFileSync, unlinkSync } from "fs";
+import { tmpdir } from "os";
 
 export type NotificationEventHandler = (id: string, event: string, actionIndex: number) => void;
 
@@ -50,6 +55,10 @@ export class NotificationNative {
                 args: [],
                 returns: FFIType.i32,
             },
+            notification_ffi_set_icon: {
+                args: [FFIType.pointer],
+                returns: FFIType.i32,
+            },
             notification_ffi_cleanup: {
                 args: [],
                 returns: FFIType.void,
@@ -59,15 +68,38 @@ export class NotificationNative {
 
     /**
      * Get or create the singleton instance.
-     * Resolves the dylib path from the executable location.
+     * Resolves the dylib path from the executable location, or extracts
+     * an embedded DLL from the compiled executable on Windows.
      */
     static getInstance(): NotificationNative | null {
         if (instance) return instance;
 
         try {
-            // In compiled mode, the dylib is next to the executable in Contents/MacOS/
-            const execDir = dirname(process.execPath);
-            const dylibPath = resolve(execDir, `libnotification.${suffix}`);
+            let dylibPath: string;
+
+            // Check for embedded DLL data (Windows compiled mode).
+            // The compile step base64-encodes libnotification.dll and stores it
+            // in a global so we don't need an external DLL file next to the exe.
+            const embeddedBase64 = (globalThis as any).__TRONBUN_NOTIFICATION_DLL_BASE64__;
+            if (embeddedBase64 && process.platform === 'win32') {
+                // Extract embedded DLL to temp directory so we can load it via FFI
+                const tempDllPath = join(tmpdir(), `tronbun-libnotification-${process.pid}.dll`);
+                const dllBytes = Buffer.from(embeddedBase64, 'base64');
+                writeFileSync(tempDllPath, dllBytes);
+                dylibPath = tempDllPath;
+
+                // Attempt to clean up temp DLL on process exit
+                // (may fail on Windows if the DLL is still loaded, which is fine —
+                // the OS temp directory gets cleaned up periodically)
+                process.on('exit', () => {
+                    try { unlinkSync(tempDllPath); } catch {}
+                });
+            } else {
+                // macOS: dylib is next to the executable in Contents/MacOS/
+                // Dev mode: dylib is next to the executable in webview/build/
+                const execDir = dirname(process.execPath);
+                dylibPath = resolve(execDir, `libnotification.${suffix}`);
+            }
 
             instance = new NotificationNative(dylibPath);
             return instance;
@@ -132,6 +164,16 @@ export class NotificationNative {
 
     checkPermission(): number {
         return this.lib.symbols.notification_ffi_check_permission() as number;
+    }
+
+    /**
+     * Set the icon used by the notification system's tray icon.
+     * @param iconPath Path to the .ico file
+     * @returns 0 on success, -1 on failure
+     */
+    setIcon(iconPath: string): number {
+        const pathBuf = cstr(iconPath);
+        return this.lib.symbols.notification_ffi_set_icon(ptr(pathBuf)) as number;
     }
 
     cleanup(): void {

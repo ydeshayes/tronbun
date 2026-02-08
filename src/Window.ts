@@ -1,6 +1,6 @@
 import { Webview } from "./Webview";
 import type { WebViewOptions } from "./Webview";
-import { setupHotReload, isCompiledExecutable, getConfig } from "./utils";
+import { setupHotReload, isCompiledExecutable, getConfig, resolveIconPath } from "./utils";
 import { ChildView, type ChildViewOptions, type ChildViewBounds, type AutoResizeConfig, type AutoResizeMode, type AnchorConfig } from "./ChildView";
 import { Protocol } from "./Protocol";
 import { resolve } from "path";
@@ -15,9 +15,17 @@ function applyWindowConfigDefaults(options: WindowOptions): WindowOptions {
     try {
         const config = getConfig();
         const windowConfig = config.window;
-        if (!windowConfig) return options;
 
         const defaults: WindowOptions = {};
+
+        // Auto-resolve app icon if not explicitly set
+        if (!options.icon) {
+            const iconPath = resolveIconPath();
+            if (iconPath) defaults.icon = iconPath;
+        }
+
+        if (!windowConfig) return { ...defaults, ...options };
+
         if (windowConfig.title !== undefined) defaults.title = windowConfig.title;
         if (windowConfig.width !== undefined) defaults.width = windowConfig.width;
         if (windowConfig.height !== undefined) defaults.height = windowConfig.height;
@@ -533,9 +541,13 @@ export class Window {
     private notificationCloseHandler: NotificationCloseHandler | null = null;
     private notificationActionHandler: NotificationActionHandler | null = null;
 
+    /** Resolved icon path (used for window icon, notifications, etc.) */
+    private iconPath: string | null = null;
+
     constructor(options: WindowOptions = {}) {
         this.id = Date.now().toString() + Math.random().toString(36).substring(2);
         const mergedOptions = applyWindowConfigDefaults(options);
+        this.iconPath = mergedOptions.icon || null;
         this.webview = new Webview(mergedOptions);
 
         this.webview.onIPC = this.onIPC.bind(this);
@@ -1326,8 +1338,21 @@ export class Window {
             return this.createNotificationAPIFFI(urgencyMap);
         }
 
+        // Send the app icon to the notification system once on first use
+        let notifIconSent = false;
+        const ensureNotifIcon = async () => {
+            if (notifIconSent) return;
+            notifIconSent = true;
+            if (self.iconPath && process.platform === 'win32') {
+                try {
+                    await webview.sendCommand('notification_set_icon', { path: self.iconPath });
+                } catch { /* ignore if command not supported */ }
+            }
+        };
+
         return {
             async requestPermission(): Promise<'granted' | 'denied' | 'unavailable'> {
+                await ensureNotifIcon();
                 const result = await webview.sendCommand('notification_request_permission', {});
                 const str = typeof result === 'string' ? result : String(result);
                 if (str === 'granted' || str === 'denied' || str === 'unavailable') return str;
@@ -1335,6 +1360,7 @@ export class Window {
             },
 
             async show(options: NotificationOptions): Promise<string> {
+                await ensureNotifIcon();
                 const notifId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
                 const result = await webview.sendCommand('notification_show', {
                     id: notifId,
@@ -1399,6 +1425,10 @@ export class Window {
                 const { NotificationNative } = require("./NotificationNative") as typeof import("./NotificationNative");
                 native = NotificationNative.getInstance();
                 if (native) {
+                    // Set the app icon for the notification tray icon before init
+                    if (self.iconPath && process.platform === 'win32') {
+                        native.setIcon(self.iconPath);
+                    }
                     native.init((id, event, actionIndex) => {
                         if (event === 'click' && self.notificationClickHandler) {
                             self.notificationClickHandler(id);

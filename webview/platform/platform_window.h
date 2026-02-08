@@ -148,6 +148,17 @@ void platform_window_pre_init_app(void);
  */
 void platform_window_activate_app(void);
 
+/**
+ * Set the window icon from a file path.
+ * On Windows, loads an .ico file and sets both the big icon (Alt-Tab, taskbar)
+ * and the small icon (title bar).
+ * On macOS, this is a no-op (the .app bundle icon is used automatically).
+ * @param native_window Platform-specific window handle
+ * @param icon_path Path to the icon file (.ico on Windows)
+ * @return 0 on success, -1 on failure
+ */
+int platform_window_set_icon(void *native_window, const char *icon_path);
+
 #ifdef __cplusplus
 }
 #endif

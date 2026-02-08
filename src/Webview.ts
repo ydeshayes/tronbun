@@ -18,6 +18,8 @@ export interface WebViewOptions {
     position?: { x: number; y: number };
     center?: boolean;
     hidden?: boolean;
+    /** Path to window icon file (.ico on Windows). Sets the taskbar and title bar icon. */
+    icon?: string;
 }  
 export interface WebViewResponse extends BaseResponse {
     type: 'response' | 'bind_callback' | 'ipc:call' | 'window_resize' | 'menu_click' | string;
@@ -106,6 +108,7 @@ export class Webview extends BaseProcess {
         if (options.position) this.setPosition(options.position.x, options.position.y);
         if (options.center) this.centerWindow();
         if (options.hidden) this.hideWindow();
+        if (options.icon) this.setIcon(options.icon);
     }
     // Override cleanup to also clear bind callbacks and pending evals
     override cleanup(): void {
@@ -127,6 +130,14 @@ export class Webview extends BaseProcess {
 
   async setSize(width: number, height: number, hints: number = 0): Promise<void> {
     await this.sendCommand('set_size', { width, height, hints });
+  }
+
+  /**
+   * Set the window icon from a file path (.ico on Windows).
+   * Sets both the taskbar icon and the title bar icon.
+   */
+  async setIcon(iconPath: string): Promise<void> {
+    await this.sendCommand('window_set_icon', { path: iconPath });
   }
 
   async navigate(url: string): Promise<void> {

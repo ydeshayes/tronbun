@@ -20,6 +20,37 @@ export function getConfig(projectRoot?: string): TronbunConfig {
     return _cachedConfig;
 }
 
+/**
+ * Resolves the path to the application icon (.ico on Windows).
+ * In compiled mode, looks next to the executable.
+ * In dev mode, checks tronbun.config.json app.iconWin, then assets/icon.ico.
+ * @returns Absolute path to the icon file, or null if not found
+ */
+export function resolveIconPath(): string | null {
+    if (process.platform !== 'win32') return null;
+
+    const isCompiled = isCompiledExecutable();
+
+    if (isCompiled) {
+        // In compiled mode, icon.ico is copied next to the executable by the compile step
+        const execDir = dirname(process.execPath);
+        const iconPath = resolve(execDir, 'icon.ico');
+        return existsSync(iconPath) ? iconPath : null;
+    }
+
+    // Dev mode: check config first, then default path
+    try {
+        const config = getConfig();
+        if (config.app?.iconWin) {
+            const configPath = resolve(process.cwd(), config.app.iconWin);
+            if (existsSync(configPath)) return configPath;
+        }
+    } catch { /* ignore config errors */ }
+
+    const defaultPath = resolve(process.cwd(), 'assets', 'icon.ico');
+    return existsSync(defaultPath) ? defaultPath : null;
+}
+
 export function isCompiledExecutable() {
     // Check if we're running from a compiled executable
     // When compiled, import.meta.url will contain:

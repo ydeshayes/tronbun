@@ -347,3 +347,11 @@ void platform_window_activate_app(void) {
         }
     });
 }
+
+int platform_window_set_icon(void *native_window, const char *icon_path) {
+    // macOS uses the .app bundle's icon automatically (CFBundleIconFile in Info.plist).
+    // No per-window icon override needed.
+    (void)native_window;
+    (void)icon_path;
+    return 0;
+}

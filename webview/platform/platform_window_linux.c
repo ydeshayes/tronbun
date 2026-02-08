@@ -169,4 +169,11 @@ void platform_window_activate_app(void) {
     // No-op on Linux - activation is handled automatically
 }
 
+int platform_window_set_icon(void *native_window, const char *icon_path) {
+    // TODO: implement GTK icon setting if needed
+    (void)native_window;
+    (void)icon_path;
+    return 0;
+}
+
 #endif // __linux__

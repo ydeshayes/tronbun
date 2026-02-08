@@ -178,7 +178,7 @@ endif
 ifeq ($(OS),Windows_NT)
 $(NOTIFICATION_DLL): notification_ffi_win.cpp | $(BUILD_DIR)
 	@echo "Building libnotification.dll..."
-	$(CXX) -shared -DUNICODE -D_UNICODE -o $@ notification_ffi_win.cpp -lshell32 -luser32
+	$(CXX) -shared -DUNICODE -D_UNICODE -o $@ notification_ffi_win.cpp -lshell32 -luser32 -lole32
 	@echo "✅ libnotification.dll built"
 endif
 

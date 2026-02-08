@@ -333,6 +333,12 @@ int platform_notification_close(const char* notification_id) {
     return 0;
 }
 
+int platform_notification_set_icon(const char* icon_path) {
+    // macOS notifications use the app bundle icon automatically.
+    (void)icon_path;
+    return 0;
+}
+
 int platform_notification_is_available(void) {
     return g_authorized ? 1 : 0;
 }

@@ -67,6 +67,48 @@ export { compressedFiles };
   return embeddedPath;
 }
 
+/**
+ * Patches a Windows PE executable to use the WINDOWS (GUI) subsystem instead of CONSOLE.
+ * This prevents a CMD window from appearing when the executable is double-clicked.
+ *
+ * The PE subsystem field is a 2-byte value located at:
+ *   e_lfanew (from DOS header at 0x3C) + 24 (PE sig + COFF header) + 68 (Optional Header offset)
+ *
+ * Value 3 = IMAGE_SUBSYSTEM_WINDOWS_CUI (console)
+ * Value 2 = IMAGE_SUBSYSTEM_WINDOWS_GUI (no console window)
+ */
+async function patchPESubsystemToGUI(executablePath: string): Promise<void> {
+  const buffer = Buffer.from(await Bun.file(executablePath).arrayBuffer());
+
+  // Read e_lfanew: offset to the PE signature, stored at DOS header offset 0x3C
+  const peOffset = buffer.readUInt32LE(0x3c);
+
+  // Verify PE signature "PE\0\0"
+  const peSignature = buffer.toString("ascii", peOffset, peOffset + 4);
+  if (peSignature !== "PE\0\0") {
+    console.warn("⚠️  Not a valid PE executable, skipping subsystem patch");
+    return;
+  }
+
+  // Subsystem is at: PE offset + 4 (signature) + 20 (COFF header) + 68 (into Optional Header)
+  const subsystemOffset = peOffset + 4 + 20 + 68;
+
+  const IMAGE_SUBSYSTEM_WINDOWS_GUI = 2;
+  const IMAGE_SUBSYSTEM_WINDOWS_CUI = 3;
+
+  const currentSubsystem = buffer.readUInt16LE(subsystemOffset);
+
+  if (currentSubsystem === IMAGE_SUBSYSTEM_WINDOWS_CUI) {
+    buffer.writeUInt16LE(IMAGE_SUBSYSTEM_WINDOWS_GUI, subsystemOffset);
+    await Bun.write(executablePath, buffer);
+    console.log("✅ Patched executable subsystem: CONSOLE → WINDOWS (no CMD window)");
+  } else if (currentSubsystem === IMAGE_SUBSYSTEM_WINDOWS_GUI) {
+    console.log("ℹ️  Executable already uses WINDOWS subsystem");
+  } else {
+    console.warn(`⚠️  Unexpected PE subsystem value (${currentSubsystem}), skipping patch`);
+  }
+}
+
 export class CompileCommand {
   static async compile(
     config: TronbunConfig,
@@ -187,6 +229,27 @@ export class CompileCommand {
     try {
       console.log("🔨 Creating Windows executable...");
       
+      // Embed notification DLL into the executable (avoids needing external DLL file)
+      const tronbunRoot = resolve(__dirname, "..", "..");
+      const notificationDll = resolve(tronbunRoot, "webview", "build", "libnotification.dll");
+      let embeddedDllPath: string | null = null;
+
+      if (existsSync(notificationDll)) {
+        console.log("🔔 Embedding notification DLL in executable...");
+        const dllBytes = await Bun.file(notificationDll).arrayBuffer();
+        const dllBase64 = Buffer.from(dllBytes).toString('base64');
+
+        embeddedDllPath = resolve(dirname(mainFile), "embedded-notification-dll.js");
+        await Bun.write(embeddedDllPath,
+          `// Auto-generated: embedded notification DLL for Windows\nglobalThis.__TRONBUN_NOTIFICATION_DLL_BASE64__ = "${dllBase64}";\n`
+        );
+
+        // Prepend import to main.js so DLL data is bundled into the executable
+        const currentMain = await Bun.file(mainFile).text();
+        await Bun.write(mainFile, `import "./embedded-notification-dll.js";\n${currentMain}`);
+        console.log("✅ Notification DLL embedded");
+      }
+
       const compileOptions = [
         "build",
         mainFile,
@@ -201,43 +264,47 @@ export class CompileCommand {
 
       await $`bun ${compileOptions}`;
 
+      // Patch PE subsystem from CONSOLE to WINDOWS to prevent CMD window on launch
+      await patchPESubsystemToGUI(executablePath);
+
+      // Clean up embedded DLL module after compilation
+      if (embeddedDllPath && existsSync(embeddedDllPath)) {
+        unlinkSync(embeddedDllPath);
+      }
+
       // Web assets are now embedded in the executable - no need to copy dist/
-      console.log("✅ Web assets embedded in executable (no external files)");
+      console.log("✅ All assets embedded in executable (no external files)");
 
       // Copy webview executable to the same directory as the compiled executable
-      const tronbunRoot = resolve(__dirname, "..", "..");
       const webviewExecutable = resolve(tronbunRoot, "webview", "build", "webview_main_win.exe");
       const trayExecutable = resolve(tronbunRoot, "webview", "build", "tray_main_win.exe");
       
       if (existsSync(webviewExecutable)) {
         console.log("🖥️  Copying webview executable...");
-        // Copy webview executable to the same directory as the compiled executable
-        await Utils.copyFile(webviewExecutable, resolve(dirname(executablePath), "webview_main_win.exe"));
-        await Utils.copyFile(trayExecutable, resolve(dirname(executablePath), "tray_main_win.exe"));
-        console.log("✅ Webview executable copied");
-
-        // Copy notification DLL for FFI-based notifications in compiled mode
-        const notificationDll = resolve(tronbunRoot, "webview", "build", "libnotification.dll");
-        if (existsSync(notificationDll)) {
-          await Utils.copyFile(notificationDll, resolve(dirname(executablePath), "libnotification.dll"));
-          console.log("✅ Notification DLL copied");
-        }
+        const destWebview = resolve(dirname(executablePath), "webview_main_win.exe");
+        const destTray = resolve(dirname(executablePath), "tray_main_win.exe");
+        await Utils.copyFile(webviewExecutable, destWebview);
+        await Utils.copyFile(trayExecutable, destTray);
+        // Patch child executables to GUI subsystem so they don't spawn CMD windows
+        await patchPESubsystemToGUI(destWebview);
+        await patchPESubsystemToGUI(destTray);
+        console.log("✅ Webview executables copied and patched (no CMD windows)");
       } else {
         console.warn("⚠️  Webview executable not found at:", webviewExecutable);
         console.warn("    The compiled app may not work correctly");
       }
 
-      // Copy app icon if available
+      // Copy app icon next to the executable so the window, tray, and notifications use it
       const iconPath = config.app?.iconWin
         ? resolve(projectRoot, config.app.iconWin)
         : resolve(projectRoot, "assets", "icon.ico");
       if (existsSync(iconPath)) {
-        console.log("🎨 App icon found:", iconPath);
-        console.log("   Note: Windows executable icons need to be embedded during compilation");
-        console.log("   Consider using a tool like rcedit to set the icon after compilation");
+        console.log("🎨 Copying app icon...");
+        await Utils.copyFile(iconPath, resolve(dirname(executablePath), "icon.ico"));
+        console.log("✅ App icon copied (used for window, tray, and notifications)");
       } else {
         console.warn("⚠️  App icon not found at:", iconPath);
-        console.warn("    Consider adding an icon.ico file to the assets folder");
+        console.warn("    The app will use the default Windows icon. Add icon.ico to assets/");
       }
 
       console.log("✅ Windows executable created:", executablePath);
