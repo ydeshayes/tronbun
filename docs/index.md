@@ -6,7 +6,7 @@ hero:
   text: Desktop Apps with TypeScript & Bun
   tagline: Lightweight, fast, cross-platform desktop applications using native webviews. No Electron required.
   image:
-    src: /logo.svg
+    src: /logo.webp
     alt: Tronbun
   actions:
     - theme: brand

@@ -6,11 +6,11 @@ export default defineConfig({
     "Build native desktop applications with TypeScript and Bun. Lightweight, fast, cross-platform.",
   base: "/tronbun/",
   head: [
-    ["link", { rel: "icon", type: "image/svg+xml", href: "/tronbun/logo.svg" }],
+    ["link", { rel: "icon", type: "image/webp", href: "/tronbun/logo.webp" }],
   ],
 
   themeConfig: {
-    logo: "/logo.svg",
+    logo: "/logo.webp",
     siteTitle: "Tronbun",
 
     nav: [
