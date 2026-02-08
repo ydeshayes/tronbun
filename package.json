@@ -15,7 +15,10 @@
     "test:ts": "bun test tests/",
     "test:memory": "cd webview && make test-memory && cd .. && bun test tests/memory-leaks.test.ts",
     "test:memory:native": "cd webview && make test-memory",
-    "test:memory:ts": "bun test tests/memory-leaks.test.ts"
+    "test:memory:ts": "bun test tests/memory-leaks.test.ts",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "files": [
     "cli/*",
@@ -41,7 +44,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "javascript-obfuscator": "^5.1.0"
+    "javascript-obfuscator": "^5.1.0",
+    "vitepress": "^1.6.4"
   },
   "peerDependencies": {
     "typescript": "^5"
