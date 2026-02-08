@@ -6,6 +6,7 @@
 #include "platform/platform_file_dialog.h"
 #include "platform/platform_menu.h"
 #include "platform/platform_context_menu.h"
+#include "platform/platform_notification.h"
 #include "common/ipc_common.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -274,6 +275,32 @@ void window_resize_callback(int width, int height, void* user_data) {
     snprintf(event_data, sizeof(event_data), "{\"width\":%d,\"height\":%d}", width, height);
     ipc_write_event("window_resize", event_data);
 }
+
+// Notification event callback implementation
+void notification_event_callback(const char* notification_id, const char* event_type,
+                                  int action_index, void* user_data) {
+    (void)user_data;
+    if (!notification_id || !event_type) return;
+
+    char event_data[1024];
+    if (action_index >= 0) {
+        snprintf(event_data, sizeof(event_data),
+            "{\"id\":\"%s\",\"actionIndex\":%d}", notification_id, action_index);
+    } else {
+        snprintf(event_data, sizeof(event_data),
+            "{\"id\":\"%s\"}", notification_id);
+    }
+
+    if (strcmp(event_type, "click") == 0) {
+        ipc_write_event("notification_click", event_data);
+    } else if (strcmp(event_type, "close") == 0) {
+        ipc_write_event("notification_close", event_data);
+    } else if (strcmp(event_type, "action") == 0) {
+        ipc_write_event("notification_action", event_data);
+    }
+}
+
+static int g_notification_initialized = 0;
 
 // Bind callback handler
 void handle_bind_callback(const char *id, const char *req, void *arg) {
@@ -1458,6 +1485,111 @@ void execute_command_dispatch(webview_t w, void* arg) {
             ipc_write_response(id, NULL, "Failed to update context menu item");
         }
 
+    // ====================================================================
+    // Notification Commands
+    // ====================================================================
+
+    } else if (strcmp(method, "notification_show") == 0) {
+        // Lazy-init notification system on first use
+        int notif_ready = g_notification_initialized;
+        if (!notif_ready) {
+            int init_result = platform_notification_init(notification_event_callback, NULL);
+            // Mark initialized regardless so subsequent calls use
+            // platform_notification_show() with its re-check cooldown.
+            g_notification_initialized = 1;
+            if (init_result == 0) {
+                notif_ready = 1;
+            } else if (init_result == -2) {
+                ipc_write_response(id, NULL, "Notification permission denied");
+            } else {
+                ipc_write_response(id, NULL, "Failed to initialize notifications");
+            }
+        }
+
+        if (notif_ready) {
+            notification_options_t options;
+            memset(&options, 0, sizeof(options));
+
+            ipc_extract_param_string(params, "id", options.id, sizeof(options.id));
+            ipc_extract_param_string(params, "title", options.title, sizeof(options.title));
+            ipc_extract_param_string(params, "body", options.body, sizeof(options.body));
+            ipc_extract_param_string(params, "icon", options.icon, sizeof(options.icon));
+            ipc_extract_param_int(params, "silent", &options.silent);
+
+            int urgency = 1;
+            ipc_extract_param_int(params, "urgency", &urgency);
+            options.urgency = (NotificationUrgency)urgency;
+
+            // Parse actions array
+            char* actions_json = ipc_extract_param_json_alloc(params, "actions");
+            if (actions_json && strlen(actions_json) > 2) {
+                cJSON* actions_arr = cJSON_Parse(actions_json);
+                if (actions_arr && cJSON_IsArray(actions_arr)) {
+                    int count = cJSON_GetArraySize(actions_arr);
+                    if (count > 8) count = 8;
+                    options.action_count = count;
+                    for (int i = 0; i < count; i++) {
+                        cJSON* action = cJSON_GetArrayItem(actions_arr, i);
+                        cJSON* text = cJSON_GetObjectItem(action, "text");
+                        if (text && cJSON_IsString(text)) {
+                            strncpy(options.actions[i].text, text->valuestring,
+                                    sizeof(options.actions[i].text) - 1);
+                            snprintf(options.actions[i].id, sizeof(options.actions[i].id),
+                                     "action_%d", i);
+                        }
+                    }
+                    cJSON_Delete(actions_arr);
+                }
+                ipc_free_string(actions_json);
+            } else if (actions_json) {
+                ipc_free_string(actions_json);
+            }
+
+            int show_result = platform_notification_show(&options);
+            if (show_result == 0) {
+                char result_json[300];
+                snprintf(result_json, sizeof(result_json), "\"%s\"", options.id);
+                ipc_write_json_response(id, result_json, NULL);
+            } else if (show_result == -2) {
+                ipc_write_response(id, NULL, "Notification permission denied");
+            } else {
+                ipc_write_response(id, NULL, "Failed to show notification");
+            }
+        }
+
+    } else if (strcmp(method, "notification_close") == 0) {
+        char notif_id[256] = "";
+        ipc_extract_param_string(params, "id", notif_id, sizeof(notif_id));
+
+        if (notif_id[0] != '\0') {
+            int close_result = platform_notification_close(notif_id);
+            if (close_result == 0) {
+                ipc_write_response(id, "true", NULL);
+            } else {
+                ipc_write_response(id, NULL, "Failed to close notification");
+            }
+        } else {
+            ipc_write_response(id, NULL, "Missing notification id");
+        }
+
+    } else if (strcmp(method, "notification_check") == 0) {
+        int available = platform_notification_is_available();
+        char result_str[32];
+        snprintf(result_str, sizeof(result_str), "%d", available);
+        ipc_write_response(id, result_str, NULL);
+
+    } else if (strcmp(method, "notification_request_permission") == 0) {
+        int init_result = platform_notification_init(notification_event_callback, NULL);
+        if (init_result == 0) {
+            g_notification_initialized = 1;
+            ipc_write_response(id, "\"granted\"", NULL);
+        } else if (init_result == -2) {
+            g_notification_initialized = 1;
+            ipc_write_response(id, "\"denied\"", NULL);
+        } else {
+            ipc_write_response(id, "\"unavailable\"", NULL);
+        }
+
     } else {
         ipc_write_response(id, NULL, "Unknown method");
     }
@@ -1490,6 +1622,14 @@ THREAD_RETURN stdin_monitor_thread(THREAD_ARG arg) {
             if (command_length > 0) {
                 fprintf(stderr, "New command detected (%zu bytes)\n", command_length);
 
+                // Notification commands that launch helper processes may block for
+                // several seconds, so run them on this background thread instead
+                // of dispatching to the main thread (which has a 1s timeout).
+                int is_notification_cmd = (
+                    strstr(command_buffer, "\"notification_show\"") != NULL ||
+                    strstr(command_buffer, "\"notification_request_permission\"") != NULL
+                );
+
                 // Create command dispatch structure
                 command_dispatch_t* cmd = (command_dispatch_t*)malloc(sizeof(command_dispatch_t));
                 if (cmd != NULL) {
@@ -1499,18 +1639,25 @@ THREAD_RETURN stdin_monitor_thread(THREAD_ARG arg) {
                     int response_ready = 0;
                     cmd->response_ready = &response_ready;
 
-                    // Dispatch the command to the main thread
-                    webview_dispatch(context->webview, execute_command_dispatch, cmd);
+                    if (is_notification_cmd) {
+                        // Run directly on this background thread — notification commands
+                        // use NSTask/helpers and don't touch the webview, so they're safe
+                        // to run off the main thread without timeout issues.
+                        execute_command_dispatch(context->webview, cmd);
+                    } else {
+                        // Dispatch to the main thread for webview-related commands
+                        webview_dispatch(context->webview, execute_command_dispatch, cmd);
 
-                    // Wait for response (with timeout)
-                    int timeout_count = 0;
-                    while (!response_ready && timeout_count < 100) {
-                        thread_sleep(10);
-                        timeout_count++;
-                    }
+                        // Wait for response (with timeout)
+                        int timeout_count = 0;
+                        while (!response_ready && timeout_count < 100) {
+                            thread_sleep(10);
+                            timeout_count++;
+                        }
 
-                    if (!response_ready) {
-                        ipc_write_response("unknown", NULL, "Command timeout");
+                        if (!response_ready) {
+                            ipc_write_response("unknown", NULL, "Command timeout");
+                        }
                     }
                 } else {
                     ipc_free_line(command_buffer);
@@ -1548,6 +1695,10 @@ int main(void) {
     fprintf(stderr, "[WebView] Custom scheme support: DISABLED\n");
 #endif
     
+    // Pre-initialise the app (sets activation policy on macOS) so that the
+    // webview library creates the window with the correct dock presence.
+    platform_window_pre_init_app();
+
     // Create webview
     webview_t w = webview_create(1, NULL); // debug=1 for development
     if (w == NULL) {

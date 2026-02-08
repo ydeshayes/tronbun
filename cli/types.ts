@@ -53,6 +53,73 @@ export interface ObfuscationOptions {
   unicodeEscapeSequence?: boolean;
 }
 
+/**
+ * App-level metadata for packaging and platform integration.
+ */
+export interface AppConfig {
+  /** Bundle identifier (e.g., "com.mycompany.myapp"). Defaults to "com.tronbun.<name>" */
+  identifier?: string;
+  /** Path to macOS app icon (.icns file), relative to project root */
+  icon?: string;
+  /** Path to Windows app icon (.ico file), relative to project root */
+  iconWin?: string;
+  /** Category for macOS (e.g., "public.app-category.developer-tools") */
+  category?: string;
+}
+
+/**
+ * Default window configuration. These are used as defaults when creating a Window
+ * without explicit options. Individual Window instances can override these.
+ */
+export interface WindowConfig {
+  /** Default window title */
+  title?: string;
+  /** Default window width (default: 800) */
+  width?: number;
+  /** Default window height (default: 600) */
+  height?: number;
+  /** Minimum window width */
+  minWidth?: number;
+  /** Minimum window height */
+  minHeight?: number;
+  /** Maximum window width */
+  maxWidth?: number;
+  /** Maximum window height */
+  maxHeight?: number;
+  /** Whether the window is resizable (default: true) */
+  resizable?: boolean;
+  /** Center the window on screen at startup */
+  center?: boolean;
+  /** Keep window always on top */
+  alwaysOnTop?: boolean;
+  /** Start the window in fullscreen */
+  fullscreen?: boolean;
+  /** Start the window frameless (no title bar / decorations) */
+  frameless?: boolean;
+  /** Window background transparency (0.0 to 1.0, default: 1.0) */
+  opacity?: number;
+}
+
+/**
+ * System tray configuration.
+ */
+export interface TrayConfig {
+  /** Enable system tray (default: false) */
+  enabled?: boolean;
+  /** Path to tray icon, relative to project root */
+  icon?: string;
+  /** Tooltip text shown on hover */
+  tooltip?: string;
+}
+
+/**
+ * Desktop notification configuration.
+ */
+export interface NotificationConfig {
+  /** Enable desktop notifications (default: true) */
+  enabled?: boolean;
+}
+
 export interface TronbunConfig {
   name: string;
   version: string;
@@ -73,6 +140,14 @@ export interface TronbunConfig {
     /** JavaScript obfuscation options for production builds */
     obfuscation?: ObfuscationOptions;
   };
+  /** App-level metadata for packaging */
+  app?: AppConfig;
+  /** Default window configuration */
+  window?: WindowConfig;
+  /** System tray configuration */
+  tray?: TrayConfig;
+  /** Desktop notification configuration */
+  notifications?: NotificationConfig;
 }
 
 export interface BuildOptions {

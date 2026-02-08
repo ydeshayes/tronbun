@@ -422,23 +422,15 @@ private:
       stop_run_loop();
     }
 
-    // Activate the app if it is not bundled.
-    // Bundled apps launched from Finder are activated automatically but
-    // otherwise not. Activating the app even when it has been launched from
-    // Finder does not seem to be harmful but calling this function is rarely
-    // needed as proper activation is normally taken care of for us.
-    // Bundled apps have a default activation policy of
-    // NSApplicationActivationPolicyRegular while non-bundled apps have a
-    // default activation policy of NSApplicationActivationPolicyProhibited.
-    if (!is_app_bundled()) {
-      // "setActivationPolicy:" must be invoked before
-      // "activateIgnoringOtherApps:" for activation to work.
-      NSApplication_setActivationPolicy(app,
-                                        NSApplicationActivationPolicyRegular);
-      // Activate the app regardless of other active apps.
-      // This can be obtrusive so we only do it when necessary.
-      NSApplication_activateIgnoringOtherApps(app, true);
-    }
+    // Always activate the app and set the activation policy to Regular.
+    // The original code only did this for non-bundled apps, but Tronbun's
+    // webview_main runs as a subprocess inside a .app bundle (spawned via
+    // Bun.spawn, NOT launched by LaunchServices).  Without explicit
+    // activation the process keeps the default Prohibited policy and no
+    // dock icon appears.  Calling this for Finder-launched apps is harmless.
+    NSApplication_setActivationPolicy(app,
+                                      NSApplicationActivationPolicyRegular);
+    NSApplication_activateIgnoringOtherApps(app, true);
 
     window_init_proceed();
   }

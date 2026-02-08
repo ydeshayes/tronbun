@@ -131,6 +131,15 @@ void platform_window_register_resize_callback(void *native_window, platform_wind
 void platform_window_get_size(void *native_window, int *width, int *height);
 
 /**
+ * Pre-initialize the application before webview creation.
+ * On macOS, this creates NSApp and sets NSApplicationActivationPolicyRegular
+ * so that when the webview library creates its window, the dock icon appears
+ * immediately. Must be called BEFORE webview_create().
+ * No-op on other platforms.
+ */
+void platform_window_pre_init_app(void);
+
+/**
  * Activate the application and bring window to front.
  * On macOS, this ensures the app is activated even when webview_main
  * runs as a subprocess inside a .app bundle (where automatic activation

@@ -161,6 +161,10 @@ void platform_window_show(void *native_window) {
     }
 }
 
+void platform_window_pre_init_app(void) {
+    // No-op on Linux
+}
+
 void platform_window_activate_app(void) {
     // No-op on Linux - activation is handled automatically
 }

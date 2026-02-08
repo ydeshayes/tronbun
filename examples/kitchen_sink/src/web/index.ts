@@ -314,6 +314,34 @@ window.removeMenu = removeMenu;
 window.toggleSaveEnabled = toggleSaveEnabled;
 window.toggleSidebarChecked = toggleSidebarChecked;
 
+// ============================================================================
+// Notification Functions
+// ============================================================================
+
+async function showNotification() {
+    try {
+        const result = await window.test_options.showNotification({
+            title: 'Hello from Tronbun!',
+            body: 'This is a test notification.'
+        });
+        console.log('Notification shown:', result);
+    } catch (e: any) {
+        console.error('Notification error:', e?.message || e);
+    }
+}
+
+async function requestNotificationPermission() {
+    try {
+        const result = await window.test_options.requestNotificationPermission();
+        console.log('Permission result:', result);
+    } catch (e: any) {
+        console.error('Permission error:', e?.message || e);
+    }
+}
+
+window.showNotification = showNotification;
+window.requestNotificationPermission = requestNotificationPermission;
+
 console.log('Web frontend loaded!');
 
 // Platform detection

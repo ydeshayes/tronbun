@@ -82,6 +82,21 @@ export class InitCommand {
         target: "bun",
         minify: false,
         sourcemap: true
+      },
+      app: {
+        identifier: `com.tronbun.${name}`,
+      },
+      window: {
+        title: name,
+        width: 800,
+        height: 600,
+        resizable: true
+      },
+      tray: {
+        enabled: false
+      },
+      notifications: {
+        enabled: true
       }
     };
     

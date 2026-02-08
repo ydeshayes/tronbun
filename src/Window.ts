@@ -1,11 +1,40 @@
 import { Webview } from "./Webview";
 import type { WebViewOptions } from "./Webview";
-import { setupHotReload, isCompiledExecutable } from "./utils";
+import { setupHotReload, isCompiledExecutable, getConfig } from "./utils";
 import { ChildView, type ChildViewOptions, type ChildViewBounds, type AutoResizeConfig, type AutoResizeMode, type AnchorConfig } from "./ChildView";
 import { Protocol } from "./Protocol";
 import { resolve } from "path";
 
 export interface WindowOptions extends WebViewOptions {}
+
+/**
+ * Merges tronbun.config.json window defaults with explicit constructor options.
+ * Explicit options always take precedence over config defaults.
+ */
+function applyWindowConfigDefaults(options: WindowOptions): WindowOptions {
+    try {
+        const config = getConfig();
+        const windowConfig = config.window;
+        if (!windowConfig) return options;
+
+        const defaults: WindowOptions = {};
+        if (windowConfig.title !== undefined) defaults.title = windowConfig.title;
+        if (windowConfig.width !== undefined) defaults.width = windowConfig.width;
+        if (windowConfig.height !== undefined) defaults.height = windowConfig.height;
+        if (windowConfig.resizable !== undefined) defaults.resizable = windowConfig.resizable;
+        if (windowConfig.center !== undefined) defaults.center = windowConfig.center;
+        if (windowConfig.alwaysOnTop !== undefined) defaults.alwaysOnTop = windowConfig.alwaysOnTop;
+        if (windowConfig.frameless !== undefined) defaults.decorations = !windowConfig.frameless;
+        if (windowConfig.opacity !== undefined) {
+            // opacity < 1.0 means transparent
+            if (windowConfig.opacity < 1.0) defaults.transparent = true;
+        }
+
+        return { ...defaults, ...options };
+    } catch {
+        return options;
+    }
+}
 
 export type IPCHandler = (data: any) => any | Promise<any>;
 
@@ -402,6 +431,52 @@ export interface WindowContext {
     offClick(itemId: string): void;
 }
 
+// ============================================================================
+// Notification API Types
+// ============================================================================
+
+export type NotificationUrgency = "low" | "normal" | "critical";
+
+export interface NotificationAction {
+    text: string;
+}
+
+export interface NotificationOptions {
+    title: string;
+    body?: string;
+    icon?: string;
+    silent?: boolean;
+    urgency?: NotificationUrgency;
+    actions?: NotificationAction[];
+}
+
+export type NotificationClickHandler = (notificationId: string) => void;
+export type NotificationCloseHandler = (notificationId: string) => void;
+export type NotificationActionHandler = (notificationId: string, actionIndex: number) => void;
+
+export interface WindowNotification {
+    /** Request notification permission from the user. */
+    requestPermission(): Promise<'granted' | 'denied' | 'unavailable'>;
+    /** Show a notification. Returns the notification ID. */
+    show(options: NotificationOptions): Promise<string>;
+    /** Close/dismiss a notification by its ID. */
+    close(notificationId: string): Promise<void>;
+    /**
+     * Check the current notification permission status.
+     * @returns
+     *   `1`  — authorized (notifications will be shown)
+     *   `0`  — not determined (user hasn't been asked yet)
+     *   `-1` — denied (user explicitly disabled notifications for this app)
+     */
+    isAvailable(): Promise<number>;
+    onClick(handler: NotificationClickHandler): void;
+    offClick(): void;
+    onClose(handler: NotificationCloseHandler): void;
+    offClose(): void;
+    onAction(handler: NotificationActionHandler): void;
+    offAction(): void;
+}
+
 export class Window {
     public readonly id: string;
     private webview: Webview;
@@ -441,15 +516,27 @@ export class Window {
      */
     public readonly context: WindowContext;
 
+    /**
+     * Notification API for native desktop notifications.
+     * Show OS notifications with optional action buttons and event handlers.
+     */
+    public readonly notification: WindowNotification;
+
     /** Menu click handlers by item ID */
     private menuClickHandlers = new Map<string, () => void>();
 
     /** Context menu click handlers by item ID */
     private contextMenuClickHandlers = new Map<string, () => void>();
 
+    /** Notification event handlers */
+    private notificationClickHandler: NotificationClickHandler | null = null;
+    private notificationCloseHandler: NotificationCloseHandler | null = null;
+    private notificationActionHandler: NotificationActionHandler | null = null;
+
     constructor(options: WindowOptions = {}) {
         this.id = Date.now().toString() + Math.random().toString(36).substring(2);
-        this.webview = new Webview(options);
+        const mergedOptions = applyWindowConfigDefaults(options);
+        this.webview = new Webview(mergedOptions);
 
         this.webview.onIPC = this.onIPC.bind(this);
 
@@ -468,6 +555,9 @@ export class Window {
         // Initialize context menu API
         this.context = this.createContextMenuAPI();
 
+        // Initialize notification API
+        this.notification = this.createNotificationAPI();
+
         // Listen for events from native layer
         this.webview.onEvent = (type: string, data: any) => {
             if (type === "menu_click" && data?.menuId) {
@@ -482,6 +572,18 @@ export class Window {
                 }
             } else if (type === "window_resize" && data?.width !== undefined && data?.height !== undefined) {
                 this.handleWindowResize(data.width, data.height);
+            } else if (type === "notification_click" && data?.id) {
+                if (this.notificationClickHandler) {
+                    this.notificationClickHandler(data.id);
+                }
+            } else if (type === "notification_close" && data?.id) {
+                if (this.notificationCloseHandler) {
+                    this.notificationCloseHandler(data.id);
+                }
+            } else if (type === "notification_action" && data?.id) {
+                if (this.notificationActionHandler) {
+                    this.notificationActionHandler(data.id, data.actionIndex ?? 0);
+                }
             }
         };
     }
@@ -1201,6 +1303,191 @@ export class Window {
 
             offClick(itemId: string): void {
                 contextMenuClickHandlers.delete(itemId);
+            }
+        };
+    }
+
+    private createNotificationAPI(): WindowNotification {
+        const webview = this.webview;
+        const self = this;
+
+        const urgencyMap: Record<NotificationUrgency, number> = {
+            low: 0,
+            normal: 1,
+            critical: 2
+        };
+
+        // Compiled mode: use FFI to call native notification APIs directly
+        // from the Bun process, bypassing the webview_main IPC path.
+        // macOS: UNUserNotificationCenter via libnotification.dylib
+        // Windows: Shell_NotifyIconW via libnotification.dll
+        const isCompiled = (globalThis as any).__TRONBUN_EMBEDDED_FILES_COMPRESSED__;
+        if (isCompiled && (process.platform === 'darwin' || process.platform === 'win32')) {
+            return this.createNotificationAPIFFI(urgencyMap);
+        }
+
+        return {
+            async requestPermission(): Promise<'granted' | 'denied' | 'unavailable'> {
+                const result = await webview.sendCommand('notification_request_permission', {});
+                const str = typeof result === 'string' ? result : String(result);
+                if (str === 'granted' || str === 'denied' || str === 'unavailable') return str;
+                return 'unavailable';
+            },
+
+            async show(options: NotificationOptions): Promise<string> {
+                const notifId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+                const result = await webview.sendCommand('notification_show', {
+                    id: notifId,
+                    title: options.title,
+                    body: options.body || '',
+                    icon: options.icon || '',
+                    silent: options.silent ? 1 : 0,
+                    urgency: urgencyMap[options.urgency || 'normal'],
+                    actions: options.actions || []
+                });
+                return typeof result === 'string' ? result : notifId;
+            },
+
+            async close(notificationId: string): Promise<void> {
+                await webview.sendCommand('notification_close', { id: notificationId });
+            },
+
+            async isAvailable(): Promise<number> {
+                const result = await webview.sendCommand('notification_check', {});
+                return typeof result === 'number' ? result : parseInt(result, 10);
+            },
+
+            onClick(handler: NotificationClickHandler): void {
+                self.notificationClickHandler = handler;
+            },
+
+            offClick(): void {
+                self.notificationClickHandler = null;
+            },
+
+            onClose(handler: NotificationCloseHandler): void {
+                self.notificationCloseHandler = handler;
+            },
+
+            offClose(): void {
+                self.notificationCloseHandler = null;
+            },
+
+            onAction(handler: NotificationActionHandler): void {
+                self.notificationActionHandler = handler;
+            },
+
+            offAction(): void {
+                self.notificationActionHandler = null;
+            }
+        };
+    }
+
+    /**
+     * Create notification API using FFI (compiled macOS mode).
+     * Loads libnotification.dylib and calls UNUserNotificationCenter directly.
+     */
+    private createNotificationAPIFFI(urgencyMap: Record<NotificationUrgency, number>): WindowNotification {
+        const self = this;
+        let native: import("./NotificationNative").NotificationNative | null = null;
+        let initDone = false;
+
+        const ensureInit = () => {
+            if (initDone) return native;
+            initDone = true;
+            try {
+                const { NotificationNative } = require("./NotificationNative") as typeof import("./NotificationNative");
+                native = NotificationNative.getInstance();
+                if (native) {
+                    native.init((id, event, actionIndex) => {
+                        if (event === 'click' && self.notificationClickHandler) {
+                            self.notificationClickHandler(id);
+                        } else if (event === 'close' && self.notificationCloseHandler) {
+                            self.notificationCloseHandler(id);
+                        } else if (event === 'action' && self.notificationActionHandler) {
+                            self.notificationActionHandler(id, actionIndex);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error("[Window] Failed to load notification FFI:", e);
+                native = null;
+            }
+            return native;
+        };
+
+        let permissionDialogShown = false;
+
+        return {
+            async requestPermission(): Promise<'granted' | 'denied' | 'unavailable'> {
+                const n = ensureInit();
+                if (!n) return 'unavailable';
+                const result = n.requestPermission();
+                if (result === 0) return 'granted';
+                // Permission denied — show dialog guiding user to System Settings (macOS only)
+                if (result === -2 && !permissionDialogShown && process.platform === 'darwin') {
+                    permissionDialogShown = true;
+                    const openSettings = await self.dialog.confirm(
+                        "This app needs permission to show notifications.\n\nPlease enable notifications in System Settings > Notifications.",
+                        "Notification Permission"
+                    );
+                    if (openSettings) {
+                        Bun.spawn(["open", "x-apple.systempreferences:com.apple.Notifications-Settings.extension"]);
+                    }
+                    return 'denied';
+                }
+                if (result === -2) return 'denied';
+                return 'unavailable';
+            },
+
+            async show(options: NotificationOptions): Promise<string> {
+                const n = ensureInit();
+                const notifId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+                if (!n) return notifId;
+                n.show(
+                    notifId,
+                    options.title,
+                    options.body || '',
+                    options.silent || false,
+                    urgencyMap[options.urgency || 'normal'],
+                    options.actions
+                );
+                return notifId;
+            },
+
+            async close(notificationId: string): Promise<void> {
+                const n = ensureInit();
+                if (n) n.close(notificationId);
+            },
+
+            async isAvailable(): Promise<number> {
+                const n = ensureInit();
+                if (!n) return 0;
+                return n.checkPermission();
+            },
+
+            onClick(handler: NotificationClickHandler): void {
+                self.notificationClickHandler = handler;
+            },
+
+            offClick(): void {
+                self.notificationClickHandler = null;
+            },
+
+            onClose(handler: NotificationCloseHandler): void {
+                self.notificationCloseHandler = handler;
+            },
+
+            offClose(): void {
+                self.notificationCloseHandler = null;
+            },
+
+            onAction(handler: NotificationActionHandler): void {
+                self.notificationActionHandler = handler;
+            },
+
+            offAction(): void {
+                self.notificationActionHandler = null;
             }
         };
     }

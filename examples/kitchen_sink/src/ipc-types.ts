@@ -32,6 +32,8 @@ export interface MainWindowHandlers {
   resetCustomMenu: (data: void) => Promise<void>;
   setMenuItemEnabled: (data: { itemId: string; enabled: boolean }) => Promise<void>;
   setMenuItemChecked: (data: { itemId: string; checked: boolean }) => Promise<void>;
+  showNotification: (data: { title: string; body?: string }) => Promise<string>;
+  requestNotificationPermission: (data: void) => Promise<string>;
 }
 
 

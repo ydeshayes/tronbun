@@ -247,6 +247,10 @@ void platform_window_get_size(void *native_window, int *width, int *height) {
     }
 }
 
+void platform_window_pre_init_app(void) {
+    // No-op on Windows
+}
+
 void platform_window_activate_app(void) {
     // No-op on Windows - activation is handled automatically
 }

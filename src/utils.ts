@@ -3,7 +3,22 @@ import { existsSync, readFileSync, watchFile } from "fs";
 import { fileURLToPath } from 'url';
 
 import { ConfigManager } from "../cli/config.js";
-import type { TronbunConfig } from "../cli/types.js";
+import type { TronbunConfig, WindowConfig, TrayConfig, NotificationConfig, AppConfig } from "../cli/types.js";
+
+export type { TronbunConfig, WindowConfig, TrayConfig, NotificationConfig, AppConfig };
+
+let _cachedConfig: TronbunConfig | null = null;
+
+/**
+ * Returns the tronbun.config.json settings for the current project.
+ * Config is cached after first load.
+ */
+export function getConfig(projectRoot?: string): TronbunConfig {
+    if (!_cachedConfig) {
+        _cachedConfig = loadProjectConfig(projectRoot);
+    }
+    return _cachedConfig;
+}
 
 export function isCompiledExecutable() {
     // Check if we're running from a compiled executable
@@ -252,8 +267,11 @@ function resolveCompiledExecutablePath(executableName: string, platform: NodeJS.
     if (platform === 'win32') {
         // On Windows, webview executable is in the same directory as the main executable
         webviewPath = resolve(executableDir, executableName);
+    } else if (platform === 'darwin' && executableDir.includes('.app/Contents/MacOS')) {
+        // In compiled macOS .app bundle, helper executables are in Contents/MacOS/
+        webviewPath = resolve(executableDir, executableName);
     } else {
-        // On macOS/Linux, webview executable is in webview/build subdirectory
+        // Dev mode or Linux: webview executable is in webview/build subdirectory
         webviewPath = resolve(executableDir, 'webview', 'build', executableName);
     }
     
@@ -268,9 +286,11 @@ function getExecutableDirectory(execPath: string, platform: NodeJS.Platform): st
     switch (platform) {
         case 'darwin':
             // Check if this is a macOS app bundle structure
+            // Helper executables (webview_main, tray_main) live in Contents/MacOS/
+            // alongside the main executable, so [NSBundle mainBundle] detects the bundle
             if (execPath.includes('.app/Contents/MacOS/')) {
                 const appBundleRoot = execPath.split('.app/Contents/MacOS/')[0] + '.app';
-                return resolve(appBundleRoot, 'Contents', 'Resources');
+                return resolve(appBundleRoot, 'Contents', 'MacOS');
             }
             return dirname(execPath);
             

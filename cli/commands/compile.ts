@@ -1,5 +1,5 @@
 import { resolve, basename, dirname } from "path";
-import { existsSync, writeFileSync, unlinkSync } from "fs";
+import { existsSync, writeFileSync, unlinkSync, rmSync } from "fs";
 import { $ } from "bun";
 import type { TronbunConfig, CompileOptions } from "../types.js";
 import { Utils } from "../utils.js";
@@ -215,13 +215,22 @@ export class CompileCommand {
         await Utils.copyFile(webviewExecutable, resolve(dirname(executablePath), "webview_main_win.exe"));
         await Utils.copyFile(trayExecutable, resolve(dirname(executablePath), "tray_main_win.exe"));
         console.log("✅ Webview executable copied");
+
+        // Copy notification DLL for FFI-based notifications in compiled mode
+        const notificationDll = resolve(tronbunRoot, "webview", "build", "libnotification.dll");
+        if (existsSync(notificationDll)) {
+          await Utils.copyFile(notificationDll, resolve(dirname(executablePath), "libnotification.dll"));
+          console.log("✅ Notification DLL copied");
+        }
       } else {
         console.warn("⚠️  Webview executable not found at:", webviewExecutable);
         console.warn("    The compiled app may not work correctly");
       }
 
       // Copy app icon if available
-      const iconPath = resolve(projectRoot, "assets", "icon.ico");
+      const iconPath = config.app?.iconWin
+        ? resolve(projectRoot, config.app.iconWin)
+        : resolve(projectRoot, "assets", "icon.ico");
       if (existsSync(iconPath)) {
         console.log("🎨 App icon found:", iconPath);
         console.log("   Note: Windows executable icons need to be embedded during compilation");
@@ -256,7 +265,12 @@ export class CompileCommand {
 
     try {
       console.log("🔨 Creating macOS app bundle...");
-      
+
+      // Clean previous bundle to remove stale files (e.g. old TronbunNotifier.app)
+      if (existsSync(appBundleDir)) {
+        rmSync(appBundleDir, { recursive: true, force: true });
+      }
+
       // Create app bundle directory structure
       Utils.ensureDir(appBundleDir);
       Utils.ensureDir(contentsDir);
@@ -282,26 +296,42 @@ export class CompileCommand {
       // Web assets are now embedded in the executable - no need to copy dist/
       console.log("✅ Web assets embedded in executable (no external files)");
 
+      // Determine bundle identifier early (needed for both Info.plist and notifier helper)
+      const bundleIdentifier = config.app?.identifier || `com.tronbun.${outputName}`;
+
       // Copy webview executable to Resources
       const tronbunRoot = resolve(__dirname, "..", "..");
       const webviewExecutable = resolve(tronbunRoot, "webview", "build", "webview_main");
       const trayExecutable = resolve(tronbunRoot, "webview", "build", "tray_main");
       
       if (existsSync(webviewExecutable)) {
-        const webviewDir = resolve(resourcesDir, "webview", "build");
-        Utils.ensureDir(webviewDir);
-        
+        // Place helper executables in Contents/MacOS/ (standard macOS bundle location).
+        // This ensures [NSBundle mainBundle] correctly identifies the .app bundle,
+        // so notifications appear under the app's own identity (not TronbunNotifier).
         console.log("🖥️  Copying webview executable...");
-        await Utils.copyFile(webviewExecutable, resolve(webviewDir, "webview_main"));
-        await Utils.copyFile(trayExecutable, resolve(webviewDir, "tray_main"));
-        console.log("✅ Webview executable copied");
+        await Utils.copyFile(webviewExecutable, resolve(macosDir, "webview_main"));
+        await Utils.copyFile(trayExecutable, resolve(macosDir, "tray_main"));
+
+        console.log("✅ Webview executables copied");
       } else {
         console.warn("⚠️  Webview executable not found at:", webviewExecutable);
         console.warn("    The compiled app may not work correctly");
       }
 
-      // Copy app icon to Resources
-      const iconPath = resolve(projectRoot, "assets", "icon.icns");
+      // Copy libnotification.dylib into Contents/MacOS/.
+      // In compiled mode, the Bun process loads this via FFI to call
+      // UNUserNotificationCenter directly (as the CFBundleExecutable).
+      const notificationDylib = resolve(tronbunRoot, "webview", "build", "libnotification.dylib");
+      if (existsSync(notificationDylib)) {
+        console.log("🔔 Copying notification library...");
+        await Utils.copyFile(notificationDylib, resolve(macosDir, "libnotification.dylib"));
+        console.log("✅ Notification library copied");
+      }
+
+      // Copy app icon to Resources (check config first, then default path)
+      const iconPath = config.app?.icon
+        ? resolve(projectRoot, config.app.icon)
+        : resolve(projectRoot, "assets", "icon.icns");
       if (existsSync(iconPath)) {
         console.log("🎨 Copying app icon...");
         await Utils.copyFile(iconPath, resolve(resourcesDir, "icon.icns"));
@@ -322,6 +352,9 @@ export class CompileCommand {
       }
 
       // Create Info.plist for the app bundle
+      const appCategory = config.app?.category ? `
+    <key>LSApplicationCategoryType</key>
+    <string>${config.app.category}</string>` : '';
       const infoPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -329,7 +362,7 @@ export class CompileCommand {
     <key>CFBundleExecutable</key>
     <string>${outputName}</string>
     <key>CFBundleIdentifier</key>
-    <string>com.tronbun.${outputName}</string>
+    <string>${bundleIdentifier}</string>
     <key>CFBundleIconFile</key>
     <string>icon.icns</string>
     <key>CFBundleName</key>
@@ -347,15 +380,24 @@ export class CompileCommand {
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
     <key>NSHighResolutionCapable</key>
-    <true/>
+    <true/>${appCategory}
     <key>LSUIElement</key>
-    <false/>
+    <true/>
 </dict>
 </plist>`;
       
       writeFileSync(resolve(contentsDir, "Info.plist"), infoPlist);
       console.log("✅ Info.plist created");
-      
+
+      // Ad-hoc code sign the app bundle so macOS Gatekeeper allows it to launch
+      try {
+        console.log("🔏 Code signing app bundle...");
+        await $`codesign --force --deep -s - ${appBundleDir}`;
+        console.log("✅ App bundle signed (ad-hoc)");
+      } catch (e) {
+        console.warn("⚠️  Code signing failed - the app may not launch when double-clicked");
+      }
+
       console.log("✅ macOS app bundle created:", appBundleDir);
       console.log("🚀 You can now double-click the app or run:", `open ${appBundleName}`);
       return true;

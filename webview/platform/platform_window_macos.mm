@@ -284,13 +284,35 @@ void platform_window_get_size(void *native_window, int *width, int *height) {
     }
 }
 
+void platform_window_pre_init_app(void) {
+    // Pre-create NSApp and set the activation policy to Regular BEFORE the
+    // webview library initialises.  When webview_main is a subprocess inside
+    // a .app bundle the library's is_app_bundled() returns true and it skips
+    // calling setActivationPolicy: (it assumes LaunchServices did it).  But
+    // since we are spawned with Bun.spawn(), LaunchServices is NOT involved
+    // and the default policy is Prohibited — no dock icon.
+    //
+    // By setting the policy here, the webview library's subsequent call to
+    // [NSApplication sharedApplication] returns the same instance that
+    // already has the correct policy.  makeKeyAndOrderFront: then works
+    // properly and the app always appears in the dock.
+    [NSApplication sharedApplication];
+    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+}
+
 void platform_window_activate_app(void) {
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     [NSApp activateIgnoringOtherApps:YES];
 
-    // Set the dock icon from the parent .app bundle asynchronously so it
-    // doesn't interfere with WebKit's initialization sequence.
+    // Re-apply activation and set the dock icon asynchronously once the main
+    // run loop is pumping.  The synchronous calls above may not take effect
+    // when the run loop hasn't started yet (webview_main is a subprocess
+    // inside a .app bundle, not launched by LaunchServices).
     dispatch_async(dispatch_get_main_queue(), ^{
+        // Re-apply activation policy now that the run loop is active.
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+        [NSApp activateIgnoringOtherApps:YES];
+
         NSBundle *appBundle = nil;
         NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
 

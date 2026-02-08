@@ -75,6 +75,7 @@ ifeq ($(UNAME_S),Darwin)
     FILE_DIALOG_IMPL = platform/platform_file_dialog_macos.mm
     MENU_IMPL = platform/platform_menu_macos.mm
     CONTEXT_MENU_IMPL = platform/platform_context_menu_macos.mm
+    NOTIFICATION_IMPL = platform/platform_notification_macos.mm
     TRAY_PLATFORM_IMPL = platform/platform_tray_macos.mm
     VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_macos.mm
     TARGET_EXT =
@@ -91,6 +92,7 @@ ifeq ($(OS),Windows_NT)
     FILE_DIALOG_IMPL = platform/platform_file_dialog_win.cpp
     MENU_IMPL = platform/platform_menu_win.cpp
     CONTEXT_MENU_IMPL = platform/platform_context_menu_win.cpp
+    NOTIFICATION_IMPL = platform/platform_notification_win.cpp
     TRAY_PLATFORM_IMPL = platform/platform_tray_win.c
     VIRTUAL_FS_IMPL = platform/virtual_fs.c platform/url_scheme_handler_win.cpp platform/webview2_env_options.cpp
     CDP_IMPL = platform/platform_cdp_win.cpp
@@ -110,7 +112,18 @@ ifeq ($(OS),Windows_NT)
     FULL_STATIC_LDFLAGS = $(LDFLAGS)
 endif
 
-TARGETS = $(BUILD_DIR)/webview_main$(TARGET_EXT) $(BUILD_DIR)/tray_main$(TARGET_EXT)
+ifeq ($(UNAME_S),Darwin)
+NOTIFIER_APP = $(BUILD_DIR)/TronbunNotifier.app
+NOTIFICATION_DYLIB = $(BUILD_DIR)/libnotification.dylib
+NOTIFIER_TARGETS = $(NOTIFIER_APP) $(NOTIFICATION_DYLIB)
+endif
+
+ifeq ($(OS),Windows_NT)
+NOTIFICATION_DLL = $(BUILD_DIR)/libnotification.dll
+NOTIFIER_TARGETS = $(NOTIFICATION_DLL)
+endif
+
+TARGETS = $(BUILD_DIR)/webview_main$(TARGET_EXT) $(BUILD_DIR)/tray_main$(TARGET_EXT) $(NOTIFIER_TARGETS)
 STATIC_TARGETS = $(BUILD_DIR)/webview_main_static$(TARGET_EXT) $(BUILD_DIR)/tray_main_static$(TARGET_EXT)
 FULL_STATIC_TARGETS = $(BUILD_DIR)/webview_main_full_static$(TARGET_EXT) $(BUILD_DIR)/tray_main_full_static$(TARGET_EXT)
 
@@ -126,8 +139,8 @@ full-static: $(FULL_STATIC_TARGETS)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
+$(BUILD_DIR)/webview_main$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(NOTIFICATION_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(NOTIFICATION_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 
 $(BUILD_DIR)/tray_main$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
 ifeq ($(UNAME_S),Darwin)
@@ -136,13 +149,46 @@ else
 	$(CC) $(CFLAGS) -o $@ $< $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) $(LDFLAGS)
 endif
 
-$(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
+ifeq ($(UNAME_S),Darwin)
+$(NOTIFIER_APP): tronbun_notifier.m | $(BUILD_DIR)
+	@echo "Building TronbunNotifier.app..."
+	@mkdir -p $(NOTIFIER_APP)/Contents/MacOS
+	@clang -fobjc-arc -framework Cocoa -framework UserNotifications -o $(NOTIFIER_APP)/Contents/MacOS/tronbun_notifier tronbun_notifier.m
+	@echo '<?xml version="1.0" encoding="UTF-8"?>' > $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '<plist version="1.0"><dict>' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '<key>CFBundleIdentifier</key><string>com.tronbun.notifier.app</string>' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '<key>CFBundleName</key><string>Tronbun</string>' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '<key>CFBundleExecutable</key><string>tronbun_notifier</string>' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '<key>CFBundlePackageType</key><string>APPL</string>' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '<key>CFBundleVersion</key><string>1.0</string>' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '<key>CFBundleShortVersionString</key><string>1.0</string>' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '<key>LSUIElement</key><true/>' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@echo '</dict></plist>' >> $(NOTIFIER_APP)/Contents/Info.plist
+	@codesign --force --deep -s - $(NOTIFIER_APP) 2>/dev/null || true
+	@echo "✅ TronbunNotifier.app built"
+
+$(NOTIFICATION_DYLIB): notification_ffi.m | $(BUILD_DIR)
+	@echo "Building libnotification.dylib..."
+	@clang -dynamiclib -fobjc-arc -framework UserNotifications -framework Cocoa \
+		-o $@ notification_ffi.m
+	@echo "✅ libnotification.dylib built"
+endif
+
 ifeq ($(OS),Windows_NT)
-	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(STATIC_LDFLAGS)
+$(NOTIFICATION_DLL): notification_ffi_win.cpp | $(BUILD_DIR)
+	@echo "Building libnotification.dll..."
+	$(CXX) -shared -DUNICODE -D_UNICODE -o $@ notification_ffi_win.cpp -lshell32 -luser32
+	@echo "✅ libnotification.dll built"
+endif
+
+$(BUILD_DIR)/webview_main_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(NOTIFICATION_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
+ifeq ($(OS),Windows_NT)
+	$(CXX) $(STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(NOTIFICATION_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(STATIC_LDFLAGS)
 else
 	@echo "Static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(NOTIFICATION_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 endif
 
 $(BUILD_DIR)/tray_main_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)
@@ -158,13 +204,13 @@ else
 endif
 endif
 
-$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
+$(BUILD_DIR)/webview_main_full_static$(TARGET_EXT): webview_main.c $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(NOTIFICATION_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) | $(BUILD_DIR)
 ifeq ($(OS),Windows_NT)
-	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(FULL_STATIC_LDFLAGS)
+	$(CXX) $(FULL_STATIC_CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(NOTIFICATION_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(FULL_STATIC_LDFLAGS)
 else
 	@echo "Full static linking is currently only supported on Windows"
 	@echo "Building regular version instead..."
-	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(WEBVIEW_IMPL) $(PLATFORM_IMPL) $(CHILD_VIEW_IMPL) $(SCREENSHOT_IMPL) $(CDP_IMPL) $(FILE_DIALOG_IMPL) $(MENU_IMPL) $(CONTEXT_MENU_IMPL) $(NOTIFICATION_IMPL) $(IPC_COMMON) $(VIRTUAL_FS_IMPL) $(LDFLAGS)
 endif
 
 $(BUILD_DIR)/tray_main_full_static$(TARGET_EXT): tray_main.c $(TRAY_PLATFORM_IMPL) $(IPC_COMMON) | $(BUILD_DIR)

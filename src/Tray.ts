@@ -1,4 +1,4 @@
-import { resolveWebviewPath } from "./utils.js";
+import { resolveWebviewPath, getConfig } from "./utils.js";
 import { BaseProcess, type BaseResponse } from "./BaseProcess.js";
 
 export interface TrayMenuItem {
@@ -169,5 +169,34 @@ export class Tray extends BaseProcess {
     static isSupported(): boolean {
         // Tray icons are supported on all major desktop platforms
         return process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux';
+    }
+
+    /**
+     * Check if tray is enabled in tronbun.config.json.
+     * Returns true if `tray.enabled` is true in config, or if not specified.
+     */
+    static isEnabled(): boolean {
+        try {
+            const config = getConfig();
+            return config.tray?.enabled !== false;
+        } catch {
+            return true;
+        }
+    }
+
+    /**
+     * Get tray defaults from tronbun.config.json.
+     * Returns icon and tooltip from config if defined.
+     */
+    static getConfigDefaults(): { icon?: string; tooltip?: string } {
+        try {
+            const config = getConfig();
+            return {
+                icon: config.tray?.icon,
+                tooltip: config.tray?.tooltip,
+            };
+        } catch {
+            return {};
+        }
     }
 }

@@ -337,6 +337,27 @@ import type { Menu, MenuItem, FileFilter, MessageBoxResult } from "tronbun";
     async handleSetMenuItemChecked(options: { itemId: string; checked: boolean }): Promise<void> {
       return this.menu.setItemChecked(options.itemId, options.checked);
     }
+
+    // ============================================================================
+    // Notification Handlers
+    // ============================================================================
+
+    @mainHandler('showNotification')
+    async handleShowNotification(options: { title: string; body?: string }): Promise<string> {
+      if((await this.notification.isAvailable()) !== 1) {
+        await this.notification.requestPermission();
+      }
+      
+      return this.notification.show({
+        title: options.title,
+        body: options.body
+      });
+    }
+
+    @mainHandler('requestNotificationPermission')
+    async handleRequestNotificationPermission(): Promise<string> {
+      return this.notification.requestPermission();
+    }
   }
 
   if (Tray.isSupported()) {
